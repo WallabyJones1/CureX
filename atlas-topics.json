@@ -1,0 +1,66 @@
+[
+  {
+    "slug": "nsclc-immune-resistance", "title": "Immunotherapy resistance in NSCLC", "area": "Oncology", "eyebrow": "01 · TREATMENT RESPONSE", "image": "cx-oncology-atlas.svg", "accent": "mint", "level": "Research question", "tags": ["Lung cancer", "PD-1 / PD-L1", "Response"],
+    "summary": "Explore why responses to immune-checkpoint therapies differ, and how public cohorts can support careful, reproducible comparisons.",
+    "question": "Which pretreatment tumour and immune features have reproducible associations with response to PD-1/PD-L1 blockade?",
+    "approach": ["Define response endpoints and baseline characteristics before comparing cohorts.", "Inspect GEO expression datasets alongside clinical annotations; check assay compatibility.", "Search primary studies for both supporting and contradictory evidence.", "Report confidence intervals, limitations and differences between association and causation."],
+    "cautions": "Small, heterogeneous public cohorts cannot establish a clinically reliable predictor of treatment response. This card does not present a treatment recommendation.",
+    "sources": [{"name":"NCBI GEO — GSE126044", "url":"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE126044"},{"name":"ClinicalTrials.gov", "url":"https://clinicaltrials.gov/"},{"name":"National Cancer Institute — Immunotherapy", "url":"https://www.cancer.gov/about-cancer/treatment/types/immunotherapy"}]
+  },
+  {
+    "slug": "tumour-microenvironment", "title": "The tumour microenvironment", "area": "Immunology", "eyebrow": "02 · IMMUNE BIOLOGY", "image": "cx-tissue-field.svg", "accent": "jade", "level": "Mechanism map", "tags": ["Immune cells", "Tumour biology", "Inflammation"],
+    "summary": "Investigate how interacting cells, extracellular signals and tissue context shape how cancer behaves.",
+    "question": "What cellular and immune features can be measured consistently across tumour tissue studies?",
+    "approach": ["Separate different cell types and measurement approaches.", "Distinguish tissue observations from computational cell-mixture estimates.", "Compare findings across cancer types only with clear context."],
+    "cautions": "Concept imagery on this card is not a pathology scan or experimental finding.",
+    "sources": [{"name":"NCI — Cancer biology", "url":"https://www.cancer.gov/about-cancer/understanding/what-is-cancer"},{"name":"NCI Genomic Data Commons", "url":"https://portal.gdc.cancer.gov/"}]
+  },
+  {
+    "slug": "antigen-presentation", "title": "Antigen presentation and immune recognition", "area": "Immunology", "eyebrow": "03 · IMMUNE RECOGNITION", "image": "cx-oncology-atlas.svg", "accent": "iris", "level": "Mechanism map", "tags": ["Antigen presentation", "T cells", "Hypotheses"],
+    "summary": "Trace research questions about how immune recognition is studied in cancer and which measurements support the interpretation.",
+    "question": "How do investigators connect antigen-presentation measurements with immune response without overstating causality?",
+    "approach": ["Locate primary experiments and inspect controls.", "Distinguish expression measurements from functional assays.", "Ask which observations reproduce in independent contexts."],
+    "cautions": "Evidence from model systems may not translate directly to clinical outcomes.",
+    "sources": [{"name":"PubMed", "url":"https://pubmed.ncbi.nlm.nih.gov/"},{"name":"Reactome Pathway Browser", "url":"https://reactome.org/PathwayBrowser/"}]
+  },
+  {
+    "slug": "gene-expression-atlas", "title": "Gene-expression data atlas", "area": "Genomics", "eyebrow": "04 · TRANSCRIPTOMICS", "image": "cx-genomics-map.svg", "accent": "blue", "level": "Data exploration", "tags": ["RNA-seq", "Data quality", "Reproducibility"],
+    "summary": "Find expression datasets, assess metadata quality and design analyses that other researchers can repeat.",
+    "question": "Which public datasets contain the measurements and patient-level labels needed for a transparent comparison?",
+    "approach": ["Record dataset accessions, source hashes and processing versions.", "Distinguish raw counts, normalised expression and panel assays.", "Plan tests and correction for multiple comparisons in advance."],
+    "cautions": "Illustrated heatmaps are decorative. No patient measurements are visualised here.",
+    "sources": [{"name":"NCBI Gene Expression Omnibus", "url":"https://www.ncbi.nlm.nih.gov/geo/"},{"name":"NCI Genomic Data Commons", "url":"https://portal.gdc.cancer.gov/"}]
+  },
+  {
+    "slug": "biomarker-validation", "title": "Biomarker validation", "area": "Genomics", "eyebrow": "05 · REPLICATION", "image": "cx-evidence-wave.svg", "accent": "amber", "level": "Research methods", "tags": ["External cohorts", "Statistics", "Bias"],
+    "summary": "Assess whether a published biomarker claim can be independently checked, not simply repeated in the same dataset.",
+    "question": "Was a proposed biomarker tested on truly independent data with compatible clinical endpoints?",
+    "approach": ["Check sample sizes, confidence intervals and data leakage risks.", "Distinguish discovery from independent validation.", "Report negative replications alongside positive results."],
+    "cautions": "A significant association is not automatically a clinically useful or approved biomarker.",
+    "sources": [{"name":"NCI Genomic Data Commons", "url":"https://portal.gdc.cancer.gov/"},{"name":"PubMed research", "url":"https://pubmed.ncbi.nlm.nih.gov/"}]
+  },
+  {
+    "slug": "trial-evidence", "title": "Clinical trial evidence", "area": "Clinical research", "eyebrow": "06 · TRANSLATIONAL EVIDENCE", "image": "cx-evidence-wave.svg", "accent": "mint", "level": "Evidence literacy", "tags": ["Trials", "Endpoints", "Transparency"],
+    "summary": "Follow registered studies, endpoints and published outcomes while distinguishing study designs and evidence quality.",
+    "question": "Which outcomes were prespecified, which were reported, and how were harms measured?",
+    "approach": ["Compare study registry entries and resulting publications.", "Distinguish exploratory findings from prespecified endpoints.", "Check eligibility criteria, follow-up time and limitations."],
+    "cautions": "Clinical trial information is not patient-specific medical guidance.",
+    "sources": [{"name":"ClinicalTrials.gov", "url":"https://clinicaltrials.gov/"},{"name":"WHO International Clinical Trials Registry Platform", "url":"https://www.who.int/clinical-trials-registry-platform"}]
+  },
+  {
+    "slug": "agent-evidence-checking", "title": "AI agents for evidence checking", "area": "AI & Methods", "eyebrow": "07 · AGENT SYSTEMS", "image": "cx-agent-network.svg", "accent": "iris", "level": "Open methods", "tags": ["MCP", "Citation checking", "Review"],
+    "summary": "Design independent agents that retrieve source material, examine claims and submit structured critiques.",
+    "question": "How can automated reviews identify missing citations, incompatible methods and unsupported conclusions?",
+    "approach": ["Require source URLs or persistent publication IDs.", "Separate independent reviewers from the original authoring agent.", "Treat all AI conclusions as suggestions until human scientific review."],
+    "cautions": "Multiple agreeing models are not equivalent to scientific validation.",
+    "sources": [{"name":"Europe PMC", "url":"https://europepmc.org/"},{"name":"NLM PubMed", "url":"https://pubmed.ncbi.nlm.nih.gov/"}]
+  },
+  {
+    "slug": "open-science-reproducibility", "title": "Reproducible open research", "area": "AI & Methods", "eyebrow": "08 · REPRODUCIBILITY", "image": "cx-agent-network.svg", "accent": "blue", "level": "Open methods", "tags": ["Code", "Provenance", "Review"],
+    "summary": "Help contributors publish code, methods, sources, model versions and caveats together with their results.",
+    "question": "Could a second team or independent agent repeat the result using the published methods and input data?",
+    "approach": ["Version all datasets, scripts and generated outputs.", "Provide exact analysis settings and compute environment.", "Log corrections and negative replication outcomes."],
+    "cautions": "Public discussion and reproducibility records do not replace formal peer review.",
+    "sources": [{"name":"NIH Data Management & Sharing", "url":"https://sharing.nih.gov/"},{"name":"Open Science Framework", "url":"https://osf.io/"}]
+  }
+]

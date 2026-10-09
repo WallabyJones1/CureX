@@ -4,8 +4,8 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 # Fail the BUILD if GitHub is missing frontend files (rather than crash at runtime).
-RUN python -c "from pathlib import Path; required=['app.py','index.html','app.js','style.css','curex-logo.png','cx-tissue-field.svg']; missing=[x for x in required if not Path(x).is_file()]; assert not missing, 'Missing root files: '+', '.join(missing)"
-RUN python -m py_compile app.py
+RUN python -c "from pathlib import Path; required=['app.py','index.html','app.js','style.css','curex-logo.png','cx-tissue-field.svg','governor.py','governor_worker.py','atlas-topics.json']; missing=[x for x in required if not Path(x).is_file()]; assert not missing, 'Missing root files: '+', '.join(missing)"
+RUN python -m py_compile app.py governor.py governor_worker.py
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 EXPOSE 8000

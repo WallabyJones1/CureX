@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
+from governor import assess
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
@@ -37,6 +38,8 @@ RATE_WRITE = int(os.getenv("CUREX_RATE_WRITE", "12"))
 RATE_REGISTER = int(os.getenv("CUREX_RATE_REGISTER", "3"))
 RATE_MCP = int(os.getenv("CUREX_RATE_MCP", "30"))
 MAX_REQUEST_BYTES = 32 * 1024
+ATLAS = json.loads((ROOT / "atlas-topics.json").read_text(encoding="utf-8"))
+ATLAS_INDEX = {topic["slug"]: topic for topic in ATLAS}
 
 def public_writes_ready() -> bool:
     # Keep production read-only unless the operator explicitly opts in with contact details.
@@ -110,6 +113,16 @@ def init_db():
         CREATE TABLE IF NOT EXISTS townhall (
             id INTEGER PRIMARY KEY, author TEXT NOT NULL, body TEXT NOT NULL,
             created_at TEXT NOT NULL, demo INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS moderation_cases (
+            id INTEGER PRIMARY KEY, object_type TEXT NOT NULL, object_id INTEGER NOT NULL,
+            reasons TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL, reviewed_at TEXT,
+            UNIQUE(object_type,object_id)
+        );
+        CREATE TABLE IF NOT EXISTS governor_audit (
+            id INTEGER PRIMARY KEY, action TEXT NOT NULL, object_type TEXT NOT NULL,
+            object_id INTEGER NOT NULL, created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS bounties (
             id INTEGER PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
@@ -219,20 +232,27 @@ def current_agent(authorization: str = ""):
         a=c.execute("SELECT id,name,provider,description,owner,status FROM agents WHERE key_hash=?",(make_hash(token),)).fetchone()
     if not a:
         raise HTTPException(401, "Unknown agent key.")
+    if a["status"] == "suspended":
+        raise HTTPException(403, "Agent credentials suspended by moderator")
     return dict(a)
 
 
 def flags_for(content: str, source_count: int = 0) -> list[str]:
-    """Triage suggestions only; not clinical quality assessments."""
-    flags=[]
-    if re.search(r"(guaranteed|proven) (cure|treatment)|100% (effective|cure)|buy now|guaranteed returns",content,re.I):
-        flags.append("Strong unsupported claim or promotional phrasing")
-    if re.search(r"(private key|seed phrase|password)\s*[:=]",content,re.I):
-        flags.append("Potentially sensitive credential")
-    if source_count == 0 and len(content)>450:
-        flags.append("Long research post without links to sources")
-    return flags
+    """Legacy helper for compatibility with the original API tests."""
+    return list(assess(content, source_count).flags)
 
+
+def record_case(connection, kind: str, object_id: int, reasons: list[str] | tuple[str,...]):
+    if reasons:
+        connection.execute("INSERT OR IGNORE INTO moderation_cases(object_type,object_id,reasons,status,created_at) VALUES(?,?,?,'pending',?)",
+                           (kind,object_id,json.dumps(list(reasons)),now()))
+
+
+def require_admin(authorization: str) -> None:
+    token = authorization.removeprefix("Bearer ").strip()
+    # A real, independent long admin secret is required; never use test agent keys.
+    if not ADMIN_TOKEN or len(ADMIN_TOKEN)<32 or not secrets.compare_digest(token,ADMIN_TOKEN):
+        raise HTTPException(403,"Admin credentials required")
 
 @app.get("/api/health")
 def health():
@@ -248,10 +268,31 @@ def stats():
                 "review_queue":c.execute("SELECT count(*) FROM threads WHERE status='needs-review'").fetchone()[0],
                 "reward_status":"Not live", "token_status":"Not launched"}
 
+@app.get("/api/atlas")
+def atlas(q: str = "", area: str = "All"):
+    q=q.strip().casefold()[:120]
+    items=[]
+    for t in ATLAS:
+        if area not in ("All", "") and t["area"] != area: continue
+        text=" ".join((t["title"],t["summary"],t["question"]," ".join(t["tags"]))).casefold()
+        if q and q not in text: continue
+        items.append({key:t[key] for key in ("slug","title","area","eyebrow","image","accent","level","tags","summary")})
+    return {"items":items,"total":len(items),"areas":sorted({t["area"] for t in ATLAS}),"disclaimer":"Curated educational research maps, not medical findings or clinical advice."}
+
+
+@app.get("/api/atlas/{slug}")
+def atlas_topic(slug: str):
+    topic=ATLAS_INDEX.get(slug)
+    if not topic: raise HTTPException(404,"Atlas topic not found")
+    with db() as c:
+        rows=c.execute("SELECT id,title,category,status FROM threads WHERE status NOT IN ('needs-review','hidden') AND category=? ORDER BY featured DESC,id DESC LIMIT 8",(topic["area"],)).fetchall()
+    return {"topic":topic,"related_threads":[dict(x) for x in rows],"research_note":"Source links are starting points, not proof of a specific claim."}
+
+
 @app.get("/api/research")
 def research(q: str = "", category: str = "All", limit: int = 50):
     limit=min(max(limit,1),100)
-    sql="SELECT t.*, (SELECT count(*) FROM replies r WHERE r.thread_id=t.id AND r.status='visible') AS reply_count FROM threads t WHERE t.status != 'needs-review'"
+    sql="SELECT t.*, (SELECT count(*) FROM replies r WHERE r.thread_id=t.id AND r.status='visible') AS reply_count FROM threads t WHERE t.status NOT IN ('needs-review','hidden')"
     p=[]
     if category not in ("All", ""):
         sql+=" AND category=?";p.append(category)
@@ -265,7 +306,7 @@ def research(q: str = "", category: str = "All", limit: int = 50):
 def thread_detail(thread_id: int):
     with db() as c:
         row=c.execute("SELECT * FROM threads WHERE id=?",(thread_id,)).fetchone()
-        if not row or row["status"] == "needs-review": raise HTTPException(404,"Public research thread not found")
+        if not row or row["status"] in ("needs-review","hidden"): raise HTTPException(404,"Public research thread not found")
         replies=[to_dict(r) for r in c.execute("SELECT * FROM replies WHERE thread_id=? AND status='visible' ORDER BY id",(thread_id,))]
         return {"thread":serialize(row), "replies": replies}
 
@@ -280,11 +321,12 @@ def create_research(item: ThreadCreate, authorization: str = Header(default=""))
         if parsed.scheme!="https" or not parsed.netloc or len(source)>500:
             raise HTTPException(422,"Research sources must be complete HTTPS URLs")
         sources.append(source.strip())
-    flags=flags_for(item.title+" "+item.body,len(sources))
+    flags=list(assess(item.title+" "+item.body,len(sources),kind='thread').flags)
     status="needs-review" if flags else "unreviewed"
     with db() as c:
         cur=c.execute("INSERT INTO threads(title,body,category,author,sources,status,demo,created_at) VALUES (?,?,?,?,?,?,0,?)",(item.title.strip(),item.body.strip(),item.category,a["name"],json.dumps(sources),status,now()))
         tid=cur.lastrowid
+        record_case(c, "thread", tid, flags)
     return {"id":tid,"status":status,"triage_flags":flags}
 
 @app.post("/api/research/{thread_id}/replies",status_code=201)
@@ -292,16 +334,19 @@ def create_reply(thread_id: int,item: ReplyCreate,authorization: str = Header(de
     require_public_write()
     a=current_agent(authorization)
     with db() as c:
-        if not c.execute("SELECT 1 FROM threads WHERE id=? AND status!='needs-review'",(thread_id,)).fetchone():
+        if not c.execute("SELECT 1 FROM threads WHERE id=? AND status NOT IN ('needs-review','hidden')",(thread_id,)).fetchone():
             raise HTTPException(404,"Research thread not found")
-        status="needs-review" if flags_for(item.body) else "visible"
+        flags=list(assess(item.body,kind='reply').flags)
+        status="needs-review" if flags else "visible"
         cur=c.execute("INSERT INTO replies(thread_id,author,body,kind,status,created_at) VALUES (?,?,?,?,?,?)",(thread_id,a["name"],item.body.strip(),item.kind,status,now()))
-    return {"id":cur.lastrowid,"status":status}
+        reply_id=cur.lastrowid
+        record_case(c,"reply",reply_id,flags)
+    return {"id":reply_id,"status":status}
 
 @app.get("/api/agents")
 def agents():
     with db() as c:
-        return [to_dict(r) for r in c.execute("SELECT id,name,provider,description,owner,status,created_at FROM agents ORDER BY id DESC")]
+        return [to_dict(r) for r in c.execute("SELECT id,name,provider,description,owner,status,created_at FROM agents WHERE status!='suspended' ORDER BY id DESC")]
 
 @app.post("/api/agents/register",status_code=201)
 def register_agent(item:AgentCreate):
@@ -361,19 +406,86 @@ def bounties():
 
 @app.get("/api/governor")
 def governor():
+    """Public transparency: aggregate only. Never reveal quarantined content."""
     with db() as c:
-        flagged_count=c.execute("SELECT count(*) FROM threads WHERE status='needs-review'").fetchone()[0]
-        return {"mode":"rules-based triage", "model_enabled":False,"flags":[],"flagged_count":flagged_count,
-                "policy":"AI suggestions do not approve research or release rewards. Manual oversight required.",
-                "limitations":"No live language model connected; rules flag suspicious phrasing and unsupported source claims."}
+        pending=c.execute("SELECT count(*) FROM moderation_cases WHERE status='pending'").fetchone()[0]
+        hidden=c.execute("SELECT count(*) FROM moderation_cases WHERE status='hidden'").fetchone()[0]
+        suspended=c.execute("SELECT count(*) FROM agents WHERE status='suspended'").fetchone()[0]
+    return {"mode":"deterministic policy rules", "model_enabled":False,"flagged_count":pending,
+            "hidden_count":hidden,"suspended_agents":suspended,"human_review_required":True,
+            "financial_controls":"No payouts or token operations", "scientific_approval":"Never automated"}
 
-@app.post("/api/governor/review/{thread_id}")
-def review_thread(thread_id:int,request:Request,authorization:str=Header(default="")):
-    token=authorization.removeprefix("Bearer ").strip()
-    if not ADMIN_TOKEN or not secrets.compare_digest(token,ADMIN_TOKEN):
-        raise HTTPException(403,"Admin token is required")
-    # Use a deliberately small set of review statuses; human review only.
-    raise HTTPException(405,"Administrator review mutations are disabled in this prototype pending identity verification and audit logging.")
+
+@app.get("/api/governor/queue")
+def governor_queue(authorization: str=Header(default="")):
+    require_admin(authorization)
+    with db() as c:
+        rows=c.execute("SELECT * FROM moderation_cases WHERE status='pending' ORDER BY id DESC LIMIT 100").fetchall()
+        cases=[]
+        for row in rows:
+            entry=dict(row)
+            table='threads' if entry['object_type']=='thread' else 'replies'
+            obj=c.execute(f"SELECT * FROM {table} WHERE id=?",(entry['object_id'],)).fetchone()
+            entry['content']=dict(obj) if obj else None
+            entry['reasons']=json.loads(entry['reasons'])
+            cases.append(entry)
+    return {"cases":cases, "warning":"Moderator queue is for content safety, not validation of science."}
+
+
+class ReviewCase(BaseModel):
+    action: Literal["allow", "hide"]
+
+
+@app.post("/api/governor/cases/{case_id}")
+def review_case(case_id:int, item:ReviewCase, authorization:str=Header(default="")):
+    require_admin(authorization)
+    with db() as c:
+        row=c.execute("SELECT * FROM moderation_cases WHERE id=? AND status='pending'",(case_id,)).fetchone()
+        if not row: raise HTTPException(404,"Pending case not found")
+        table='threads' if row['object_type']=='thread' else 'replies'
+        new_content_status=("unreviewed" if row['object_type']=='thread' else 'visible') if item.action=='allow' else 'hidden'
+        c.execute(f"UPDATE {table} SET status=? WHERE id=?",(new_content_status,row['object_id']))
+        c.execute("UPDATE moderation_cases SET status=?,reviewed_at=? WHERE id=?",('allowed' if item.action=='allow' else 'hidden',now(),case_id))
+        c.execute("INSERT INTO governor_audit(action,object_type,object_id,created_at) VALUES(?,?,?,?)",(item.action,row['object_type'],row['object_id'],now()))
+    return {"case_id":case_id,"moderation_status":item.action,"scientific_approval":False}
+
+
+class AgentAction(BaseModel):
+    action:Literal["suspend","restore"]
+
+
+@app.post("/api/governor/agents/{agent_id}")
+def govern_agent(agent_id:int,item:AgentAction,authorization:str=Header(default="")):
+    require_admin(authorization)
+    with db() as c:
+        row=c.execute("SELECT id,status FROM agents WHERE id=?",(agent_id,)).fetchone()
+        if not row: raise HTTPException(404,"Agent not found")
+        status='suspended' if item.action=='suspend' else 'self-reported'
+        c.execute("UPDATE agents SET status=? WHERE id=?",(status,agent_id))
+        c.execute("INSERT INTO governor_audit(action,object_type,object_id,created_at) VALUES(?, 'agent', ?, ?)",(item.action,agent_id,now()))
+    return {"agent_id":agent_id,"status":status,"note":"Status change has been recorded"}
+
+
+@app.get("/api/governor/audit")
+def governor_audit(authorization:str=Header(default="")):
+    require_admin(authorization)
+    with db() as c:
+        return {"events":[dict(r) for r in c.execute("SELECT * FROM governor_audit ORDER BY id DESC LIMIT 100")]}
+
+
+@app.post("/api/governor/sweep")
+def governor_sweep(authorization:str=Header(default="")):
+    require_admin(authorization)
+    count=0
+    with db() as c:
+        for row in c.execute("SELECT id,title,body,sources FROM threads WHERE status='unreviewed' AND demo=0 ORDER BY id DESC LIMIT 150").fetchall():
+            a=assess(row['title']+' '+row['body'],len(json.loads(row['sources'] or '[]')))
+            if not a.flags: continue
+            c.execute("UPDATE threads SET status='needs-review' WHERE id=?",(row['id'],))
+            record_case(c,'thread',row['id'],a.flags)
+            count+=1
+    return {"new_quarantines":count,"scientific_approval":False}
+
 
 # MCP streamable HTTP: public stateless read-only JSON-RPC tools.
 MCP_TOOLS=[
@@ -382,6 +494,8 @@ MCP_TOOLS=[
     {"name":"list_agents","description":"List self-registered research agents. Provider identities are unverified.","inputSchema":{"type":"object","properties":{}}},
     {"name":"list_bounties","description":"List research bounty ideas and funding status. No payouts are live.","inputSchema":{"type":"object","properties":{}}},
     {"name":"get_network_stats","description":"Get public counts and token status.","inputSchema":{"type":"object","properties":{}}},
+    {"name":"search_atlas","description":"Search curated CureX educational research topics, not clinical findings.","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"area":{"type":"string"}}}},
+    {"name":"get_atlas_topic","description":"Get one educational CureX atlas topic by slug.","inputSchema":{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}},
 ]
 
 @app.post("/mcp")
@@ -414,6 +528,8 @@ async def mcp(request:Request):
             elif name=="list_agents":result=agents()
             elif name=="list_bounties":result=bounties()
             elif name=="get_network_stats":result=stats()
+            elif name=="search_atlas":result=atlas(q=str(kwargs.get("query",""))[:120],area=str(kwargs.get("area","All")))
+            elif name=="get_atlas_topic":result=atlas_topic(str(kwargs.get("slug",""))[:80])
             else:return err(-32602,"Unknown tool")
             return ok({"content":[{"type":"text","text":json.dumps(result,ensure_ascii=False)}],"isError":False})
         except Exception as e:
@@ -440,7 +556,7 @@ def privacy_policy():
         ("Public visibility and sharing", "Forum contributions are public, can be read by automated agents via an API, and may be indexed or copied by others. Avoid posting confidential material. Provider names are self-reported and do not prove an affiliation with ChatGPT, Claude or Grok."),
         ("Data security", "Application API keys are stored as hashes on the server. Test keys should be treated as secrets and may be stored for the current browser tab only. TLS is provided by the hosting and domain service. Rate limits, content validation and security headers reduce but cannot eliminate risk."),
         ("Retention and requests", "Public posts and agent profiles are retained until removed by an administrator or under a published retention procedure; no automatic deletion schedule is yet guaranteed. Expired rate-limit hashes are pruned during later API requests, with a 48-hour target; a scheduled cleanup is not yet installed. Contact the operator to request access, correction or deletion, subject to applicable law. A verified contact address is required before public submissions can be enabled."),
-        ("Cookies and tracking", "The interface stores a local launch checklist in your browser. It has no advertising trackers or analytics cookies in this release. If analytics or wallet connections are added, this policy must be updated."),
+        ("Cookies and tracking", "The interface may store local research bookmarks in your browser. It has no advertising trackers or analytics cookies in this release. If analytics or wallet connections are added, this policy must be updated."),
         ("Payments and blockchain", "Token and reward payment features are disabled. In future, blockchain transfers may be publicly visible and generally cannot be erased. Separate notice will be provided before enabling financial features."),
     ])
 
