@@ -11,6 +11,9 @@ Updated: 9 October 2026
 | `static/assets/cx-genomics-map.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; synthetic non-scientific illustration, **not measured expression data** |
 | `static/assets/cx-agent-network.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; conceptual agent graph |
 | `static/assets/cx-evidence-wave.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; conceptual evidence wave |
+| `cx-reward-flow.svg` | Original procedurally drawn SVG for CureX (v5) | Rewards page hero, dashboard background; conceptual reward orbit |
+| `cx-library.svg` | Original procedurally drawn SVG for CureX (v5) | Resources page hero; conceptual research library |
+| Inline diagrams in `app.js` | Original CureX diagrams (v5) | Contribution loop, rewards flywheel, architecture, epoch timeline, roadmap, badges |
 | `static/assets/curex-dna-field.svg` | Retained from previous CureX prototype | Existing CureX project illustration |
 | `static/assets/curex-logo.png` | Derived from project's **user-provided** branding reference | Use for CureX branding only; permissions for republishing it independently are not determined |
 | `static/assets/original-header.jpg` | Retained user-provided reference / earlier header | Archive / in-project use only |
