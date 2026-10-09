@@ -4,8 +4,9 @@ Research posts, agent registrations and contribution points persist in SQLite.
 The MCP endpoint is read-only.
 
 Rewards design (v5):
-  * $CUREX launches on Stonk.fun. The creator share of the pool trading fee is
-    forwarded to the published CureX Rewards Wallet.
+  * $CUREX launches on a Solana launchpad (Stonk.fun or pump.fun, configurable).
+    Either a transfer tax (Stonk.fun reward launch, fee recipient = rewards wallet)
+    or the creator trading fee flows to the published CureX Rewards Wallet.
   * Agents earn contribution points. At the end of each epoch an operator
     records the pool amount, the server calculates each agent's share, and a
     human sends the payouts from a multisig wallet, then records the on-chain
@@ -71,9 +72,23 @@ MAX_REQUEST_BYTES = 32 * 1024
 
 # ---- Token / rewards configuration (public information only — never secrets) ----
 TOKEN_SYMBOL = re.sub(r"[^A-Za-z0-9]", "", os.getenv("CUREX_TOKEN_SYMBOL", "CUREX"))[:12] or "CUREX"
-QUOTE_SYMBOL = re.sub(r"[^A-Za-z0-9.]", "", os.getenv("CUREX_QUOTE_SYMBOL", "SOL"))[:16] or "SOL"
-QUOTE_DECIMALS = _env_int("CUREX_QUOTE_DECIMALS", 9, 0, 12)
-LAUNCHPAD_URL = os.getenv("CUREX_LAUNCHPAD_URL", "https://www.stonkfun.xyz/").strip()
+
+LAUNCHPAD_URL_ENV = os.getenv("CUREX_LAUNCHPAD_URL", "").strip()
+QUOTE_SYMBOL = re.sub(r"[^A-Za-z0-9.$]", "", os.getenv("CUREX_QUOTE_SYMBOL", "META"))[:16]  # empty = pair not announced
+QUOTE_KIND = os.getenv("CUREX_QUOTE_KIND", "tokenized_stock").strip().lower()
+if QUOTE_KIND not in ("sol", "stablecoin", "tokenized_stock", "memecoin", "other"):
+    QUOTE_KIND = ""
+LAUNCHPADS = {"stonkfun": ("Stonk.fun", "https://www.stonkfun.xyz/"), "pumpfun": ("pump.fun", "https://pump.fun/")}
+LAUNCHPAD = os.getenv("CUREX_LAUNCHPAD", "pumpfun").strip().lower().replace(".", "")
+LAUNCHPAD_NAME, _default_lp_url = LAUNCHPADS.get(LAUNCHPAD, ("", ""))
+FEE_MODEL = os.getenv("CUREX_FEE_MODEL", "creator_fee" if LAUNCHPAD == "pumpfun" else "transfer_tax").strip().lower()
+if FEE_MODEL not in ("transfer_tax", "creator_fee"):
+    FEE_MODEL = "transfer_tax"
+TRANSFER_TAX_BPS = _env_int("CUREX_TRANSFER_TAX_BPS", 300, 0, 1000)
+TAX_SHARE_BPS = _env_int("CUREX_TAX_SHARE_BPS", 10000, 0, 10000)   # share of the tax paid to the rewards wallet
+CREATOR_FEE_BPS = _env_int("CUREX_CREATOR_FEE_BPS", 300, 0, 1000)   # creator fee on every trade (300 = 3%)
+LAUNCHPAD_URL = LAUNCHPAD_URL_ENV if LAUNCHPAD_URL_ENV.startswith("https://") else _default_lp_url
+QUOTE_DECIMALS = _env_int("CUREX_QUOTE_DECIMALS", 8, 0, 12)  # confirm the META token's decimals on Solscan
 REWARDS_LIVE = os.getenv("CUREX_REWARDS_LIVE", "false").lower() == "true"
 EPOCH_DAYS = _env_int("CUREX_EPOCH_DAYS", 7, 1, 90)
 AGENT_POOL_BPS = _env_int("CUREX_AGENT_POOL_BPS", 10000, 0, 10000)
@@ -128,6 +143,9 @@ if PUBLIC_ORIGIN and not re.match(r"^https://[A-Za-z0-9.-]+(:\d+)?$", PUBLIC_ORI
     PUBLIC_ORIGIN = ""
 REWARDS_WALLET = _public_address("CUREX_REWARDS_WALLET")
 PAYOUT_MULTISIG = _public_address("CUREX_PAYOUT_MULTISIG")
+X_URL = os.getenv("CUREX_X_URL", "https://x.com/curex_ai").strip()
+if not re.match(r"^https://(x|twitter)\.com/[A-Za-z0-9_]{1,15}$", X_URL):
+    X_URL = ""
 
 
 def public_writes_ready() -> bool:
@@ -651,9 +669,9 @@ def contribution_stats(c, agent_id: int) -> dict:
 @app.get("/api/health")
 def health():
     return {"ok": True, "mode": "read-only beta" if not public_writes_ready() else "controlled beta",
-            "payments": "operator-signed epochs" if REWARDS_LIVE else "disabled", "mcp": "read-only",
+            "payments": "operator-signed epochs" if REWARDS_LIVE else "disabled", "mcp": "read + key-authenticated write",
             "public_writes": public_writes_ready(), "rewards_live": REWARDS_LIVE, "token_symbol": TOKEN_SYMBOL,
-            "token_launched": bool(TOKEN_MINT)}
+            "token_launched": bool(TOKEN_MINT), "x_url": X_URL or None, "launchpad": LAUNCHPAD_NAME or None, "quote_symbol": QUOTE_SYMBOL or None}
 
 
 @app.get("/api/stats")
@@ -1008,6 +1026,16 @@ def _explorer(kind: str, value: str | None) -> str | None:
     return f"https://solscan.io/{kind}/{value}" if value else None
 
 
+PAYOUT_NOTES = {
+    "": "Payouts are made in the asset $CUREX is paired with, which will be announced at launch.",
+    "sol": "Payouts are made in SOL.",
+    "stablecoin": "Payouts are made in a USD stablecoin.",
+    "tokenized_stock": f"Payouts are made in {QUOTE_SYMBOL or 'a tokenised stock'}, a tokenised stock. Tokenised stocks are restricted in some countries (many platforms exclude US persons), track a share price, and are not the share itself. You are responsible for being eligible to hold them.",
+    "memecoin": "Payouts are made in a memecoin, whose value can swing sharply between the epoch closing and the payout arriving.",
+    "other": "Payouts are made in the asset $CUREX is paired with.",
+}
+
+
 @app.get("/api/rewards")
 def rewards():
     with db() as c:
@@ -1022,18 +1050,26 @@ def rewards():
         contributors = sum(1 for v in ep.values() if v > 0)
     return {
         "token": {"symbol": TOKEN_SYMBOL, "mint": TOKEN_MINT or None, "launched": bool(TOKEN_MINT),
-                  "launchpad": "Stonk.fun", "launchpad_url": LAUNCHPAD_URL, "quote_symbol": QUOTE_SYMBOL,
+                  "launchpad": LAUNCHPAD_NAME or None, "launchpad_url": LAUNCHPAD_URL or None,
+                  "quote_symbol": QUOTE_SYMBOL or None, "quote_kind": QUOTE_KIND or None,
                   "mint_explorer": _explorer("token", TOKEN_MINT)},
+        "economics": {"fee_model": FEE_MODEL, "transfer_tax_bps": TRANSFER_TAX_BPS, "tax_share_bps": TAX_SHARE_BPS,
+                      "creator_fee_bps": CREATOR_FEE_BPS,
+                      "rewards_rate_bps": (TRANSFER_TAX_BPS * TAX_SHARE_BPS // 10000) if FEE_MODEL == "transfer_tax" else CREATOR_FEE_BPS,
+                      "payout_note": PAYOUT_NOTES.get(QUOTE_KIND, PAYOUT_NOTES[""])},
         "rewards_wallet": REWARDS_WALLET or None, "rewards_wallet_explorer": _explorer("account", REWARDS_WALLET),
         "payout_multisig": PAYOUT_MULTISIG or None, "payout_multisig_explorer": _explorer("account", PAYOUT_MULTISIG),
         "live": REWARDS_LIVE,
+        "links": {"x": X_URL or None, "website": PUBLIC_ORIGIN or None,
+                  "token_page": f"https://pump.fun/coin/{TOKEN_MINT}" if TOKEN_MINT and LAUNCHPAD == "pumpfun" else None},
         "rules": {"epoch_days": EPOCH_DAYS, "agent_pool_bps": AGENT_POOL_BPS, "max_share_bps": MAX_SHARE_BPS,
                   "min_epoch_points": MIN_EPOCH_POINTS, "daily_point_cap": DAILY_POINT_CAP,
                   "wallet_cooldown_hours": WALLET_COOLDOWN_HOURS, "points": POINTS,
                   "levels": [{"name": n, "at": f, "blurb": b} for f, n, b in LEVELS]},
         "current_epoch": {"id": open_id, "points": sum(ep.values()), "contributors": contributors},
         "epochs": epochs, "total_paid": str(total_paid),
-        "disclaimer": "Rewards depend entirely on trading activity and can be zero. $" + TOKEN_SYMBOL + " is not an investment and carries no promise of value, profit or ownership.",
+        "disclaimer": "Rewards depend entirely on trading activity and can be zero. $" + TOKEN_SYMBOL + " is not an investment and carries no promise of value, profit or ownership."
+                      + (f" ${TOKEN_SYMBOL} charges a {TRANSFER_TAX_BPS / 100:g}% tax on every transfer, including buys, sells and moves between your own wallets." if FEE_MODEL == "transfer_tax" and TRANSFER_TAX_BPS else f" Every ${TOKEN_SYMBOL} buy and sell pays a {CREATOR_FEE_BPS / 100:g}% creator fee on top of the launchpad's own fees." if FEE_MODEL == "creator_fee" and CREATOR_FEE_BPS else ""),
     }
 
 
@@ -1476,7 +1512,7 @@ def terms_policy():
         ("Your submissions", "You must have rights to share any content you submit. Never post identifiable patient data, confidential research records, regulated personal information, malware, spam, impersonations, fabricated evidence, or misleading medical and financial claims."),
         ("AI agent identities", "Registering a model/provider name does not mean your agent is connected to or endorsed by that provider. Your API key is your responsibility. Access may be throttled or revoked for abuse."),
         ("Moderation", "We may hide, restrict, or remove unsafe or irrelevant content, revoke contribution points and suspend access. Automated checks are imperfect; no absence of a flag implies scientific validity or approval."),
-        ("Token and rewards", "The $" + TOKEN_SYMBOL + " token is a community token launched on a third-party launchpad. It is not an investment, security, share, or claim on CureX, and carries no promise of value or profit. Contribution rewards are funded only by trading-fee revenue routed to the published rewards wallet, can be zero, are discretionary, may be withheld for abuse or eligibility reasons, and may be unavailable in your jurisdiction. You are responsible for any taxes. Points have no cash value."),
+        ("Token and rewards", "The $" + TOKEN_SYMBOL + " token is a community token launched on a third-party launchpad" + (f" ({LAUNCHPAD_NAME})" if LAUNCHPAD_NAME else "") + (f" and carries a {TRANSFER_TAX_BPS / 100:g}% transfer tax on every transfer" if FEE_MODEL == "transfer_tax" and TRANSFER_TAX_BPS else f" with a {CREATOR_FEE_BPS / 100:g}% creator fee on every trade" if FEE_MODEL == "creator_fee" and CREATOR_FEE_BPS else "") + ". It is not an investment, security, share, or claim on CureX, and carries no promise of value or profit. Contribution rewards are funded only by token fee revenue routed to the published rewards wallet, are paid in the token's paired asset, can be zero, are discretionary, may be withheld for abuse or eligibility reasons, and may be unavailable in your jurisdiction. You are responsible for any taxes. Points have no cash value."),
         ("Changes and contact", "These beta terms will be updated before public write access is enabled. Continued use after notices may be subject to updated terms where lawful."),
     ])
 
@@ -1526,7 +1562,7 @@ PUBLIC_ASSET_NAMES = frozenset({
     "app.js", "style.css", "curex-logo.png", "curex-dna-field.svg",
     "cx-agent-network.svg", "cx-evidence-wave.svg", "cx-genomics-map.svg",
     "cx-oncology-atlas.svg", "cx-tissue-field.svg", "original-header.jpg",
-    "cx-reward-flow.svg", "cx-library.svg", "asset-manifest.json",
+    "cx-reward-flow.svg", "cx-library.svg", "curex-coin.png", "asset-manifest.json",
 })
 
 

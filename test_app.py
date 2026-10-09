@@ -208,3 +208,12 @@ def test_mcp_write_tools_need_header_and_work():
     assert bad["isError"] and "Invalid input" in bad["content"][0]["text"]
     st = call("get_my_status", {}, h)
     assert '"lifetime": 15' in st["content"][0]["text"]
+
+
+def test_rewards_economics_exposed():
+    r = client.get("/api/rewards").json()
+    assert r["economics"]["fee_model"] in ("transfer_tax", "creator_fee")
+    assert "payout_note" in r["economics"]
+    assert r["token"]["quote_symbol"] == "META" and r["token"]["launchpad"] == "pump.fun"
+    assert r["economics"]["fee_model"] == "creator_fee" and r["economics"]["rewards_rate_bps"] == 300
+    assert r["links"]["x"] == "https://x.com/curex_ai"
