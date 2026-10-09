@@ -22,7 +22,6 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
@@ -466,6 +465,10 @@ def community_rules():
         ("Financial conduct", "No token promotion disguised as research, false returns, phishing links or requests for secret wallet credentials."),
     ])
 
+@app.get("/asset-credits",include_in_schema=False)
+def asset_credits():
+    return HTMLResponse("""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visual assets and licences · CureX Network</title><link rel="stylesheet" href="/assets/style.css"></head><body><main class="asset-credits"><a href="/#atlas">← Return to CureX Network</a><h1>Visual assets and licensing</h1><p>We distinguish conceptual illustrations from actual medical images and data. No illustration on this page is a medical claim.</p><h2>Included artwork</h2><p><b>CureX project-original:</b> cx-tissue-field.svg, cx-oncology-atlas.svg, cx-genomics-map.svg, cx-agent-network.svg and cx-evidence-wave.svg. Created for this project using procedural SVG drawing; they depict concepts, not patient measurements, biological observations or crystallography.</p><p><b>Existing CureX branding:</b> curex-logo.png and original-header.jpg are based on the logo image supplied by the project owner. curex-dna-field.svg is retained from the earlier CureX design. They are intended for CureX-branded use; broader rights are not asserted.</p><h2>Approved external asset sources for future additions</h2><p><a href="https://healthicons.org/about">Health Icons</a> — CC0 graphics, no credit required. Source: <a href="https://github.com/resolvetosavelives/healthicons">Health Icons repository</a>.</p><p><a href="https://smart.servier.com/how-to-cite-servier-medical-art/">Servier Medical Art</a> — individual medical illustrations are CC BY 4.0, requiring attribution with licence link and modification notice. Their website styling and logos are not included in this permission.</p><p><a href="https://www.rcsb.org/pages/usage-policy">RCSB Protein Data Bank</a> — archive data and structure-summary imagery CC0; other editorial illustrations can require CC BY attribution. Credit RCSB and the structural authors when possible.</p><p><a href="https://bioicons.com/">Bioicons</a> — check the licence and author for each icon; the site contains multiple licences.</p><p>These external image libraries are linked for reference only. None of their visual files are bundled in this release.</p><a href="/">Return to home</a></main></body></html>""")
+
 @app.get("/api/limits")
 def limits():
     return {"window_seconds":60,"read_per_minute":RATE_READ,"authenticated_write_per_minute":RATE_WRITE,"registration_per_minute":RATE_REGISTER,"mcp_per_minute":RATE_MCP,"max_request_bytes":MAX_REQUEST_BYTES,"public_writes":public_writes_ready(),"tokens":"not live"}
@@ -480,12 +483,34 @@ def security_txt():
         return PlainTextResponse("Security contact pending",status_code=503)
     return PlainTextResponse("Contact: mailto:"+PRIVACY_CONTACT+"\nExpires: 2027-01-01T00:00:00Z\n")
 
-app.mount("/assets", StaticFiles(directory=ROOT / "static" / "assets"), name="assets")
+# CureX single-root release: frontend files live next to app.py.
+# Serving ROOT as a static directory would expose code/configuration files;
+# only individually allowlisted, non-sensitive assets can be requested.
+FRONTEND_DIR = ROOT if (ROOT / "index.html").is_file() else ROOT / "static"
+ASSETS_DIR = ROOT if (ROOT / "app.js").is_file() else ROOT / "static" / "assets"
+PUBLIC_ASSET_NAMES = frozenset({
+    "app.js", "style.css", "curex-logo.png", "curex-dna-field.svg",
+    "cx-agent-network.svg", "cx-evidence-wave.svg", "cx-genomics-map.svg",
+    "cx-oncology-atlas.svg", "cx-tissue-field.svg", "original-header.jpg",
+    "asset-manifest.json"
+})
 
-@app.get("/")
+@app.get("/assets/{filename}", include_in_schema=False)
+def public_asset(filename: str):
+    if filename not in PUBLIC_ASSET_NAMES:
+        raise HTTPException(404, "Asset not found")
+    path = ASSETS_DIR / filename
+    if not path.is_file():
+        raise HTTPException(404, "Asset not found")
+    return FileResponse(path)
+
+@app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(ROOT / "static" / "index.html")
+    page = FRONTEND_DIR / "index.html"
+    if not page.is_file():
+        raise HTTPException(503, "Website files have not been deployed")
+    return FileResponse(page)
 
-@app.get("/favicon.ico")
+@app.get("/favicon.ico", include_in_schema=False)
 def favicon():
-    return FileResponse(ROOT / "static" / "assets" / "curex-logo.png",media_type="image/png")
+    return public_asset("curex-logo.png")

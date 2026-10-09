@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 570" role="img" aria-label="Conceptual scientific illustration, not experimental data">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#10372f"/><stop offset="1" stop-color="#092822"/></linearGradient><radialGradient id="t"><stop stop-color="#3fc3ac" stop-opacity=".68"/><stop offset=".65" stop-color="#176f64" stop-opacity=".38"/><stop offset="1" stop-color="#7aefcf" stop-opacity=".07"/></radialGradient></defs><rect width="900" height="570" fill="url(#bg)"/>
+<circle cx="492" cy="75" r="78" fill="url(#t)" stroke="#84e5c8" stroke-width="1.1" opacity="0.68"/><circle cx="497.5" cy="70.3" r="19.5" fill="#94eed2" opacity=".22"/>
+<circle cx="547" cy="155" r="69" fill="url(#t)" stroke="#84e5c8" stroke-width="0.7" opacity="0.60"/><circle cx="551.8" cy="150.9" r="17.2" fill="#94eed2" opacity=".22"/>
+<circle cx="797" cy="134" r="51" fill="url(#t)" stroke="#84e5c8" stroke-width="1.1" opacity="0.75"/><circle cx="800.6" cy="130.9" r="12.8" fill="#94eed2" opacity=".22"/>
+<circle cx="362" cy="401" r="51" fill="url(#t)" stroke="#84e5c8" stroke-width="2" opacity="0.49"/><circle cx="365.6" cy="397.9" r="12.8" fill="#94eed2" opacity=".22"/>
+<circle cx="94" cy="66" r="53" fill="url(#t)" stroke="#84e5c8" stroke-width="2" opacity="0.54"/><circle cx="97.7" cy="62.8" r="13.2" fill="#94eed2" opacity=".22"/>
+<circle cx="680" cy="383" r="60" fill="url(#t)" stroke="#84e5c8" stroke-width="1.1" opacity="0.39"/><circle cx="684.2" cy="379.4" r="15.0" fill="#94eed2" opacity=".22"/>
+<circle cx="404" cy="513" r="36" fill="url(#t)" stroke="#84e5c8" stroke-width="1.1" opacity="0.22"/><circle cx="406.5" cy="510.8" r="9.0" fill="#94eed2" opacity=".22"/>
+<circle cx="109" cy="502" r="26" fill="url(#t)" stroke="#84e5c8" stroke-width="0.7" opacity="0.78"/><circle cx="110.8" cy="500.4" r="6.5" fill="#94eed2" opacity=".22"/>
+<circle cx="584" cy="27" r="51" fill="url(#t)" stroke="#84e5c8" stroke-width="2" opacity="0.71"/><circle cx="587.6" cy="23.9" r="12.8" fill="#94eed2" opacity=".22"/>
+<circle cx="439" cy="49" r="75" fill="url(#t)" stroke="#84e5c8" stroke-width="2" opacity="0.59"/><circle cx="444.2" cy="44.5" r="18.8" fill="#94eed2" opacity=".22"/>
+<circle cx="546" cy="66" r="66" fill="url(#t)" stroke="#84e5c8" stroke-width="1.1" opacity="0.73"/><circle cx="550.6" cy="62.0" r="16.5" fill="#94eed2" opacity=".22"/>
+<circle cx="189" cy="416" r="39" fill="url(#t)" stroke="#84e5c8" stroke-width="0.7" opacity="0.39"/><circle cx="191.7" cy="413.7" r="9.8" fill="#94eed2" opacity=".22"/>
+<circle cx="411" cy="413" r="36" fill="url(#t)" stroke="#84e5c8" stroke-width="1.1" opacity="0.41"/><circle cx="413.5" cy="410.8" r="9.0" fill="#94eed2" opacity=".22"/>
+<circle cx="433" cy="352" r="71" fill="url(#t)" stroke="#84e5c8" stroke-width="2" opacity="0.76"/><circle cx="438.0" cy="347.7" r="17.8" fill="#94eed2" opacity=".22"/>
+<circle cx="245" cy="100" r="65" fill="url(#t)" stroke="#84e5c8" stroke-width="2" opacity="0.33"/><circle cx="249.6" cy="96.1" r="16.2" fill="#94eed2" opacity=".22"/>
+<circle cx="710" cy="459" r="33" fill="url(#t)" stroke="#84e5c8" stroke-width="2" opacity="0.40"/><circle cx="712.3" cy="457.0" r="8.2" fill="#94eed2" opacity=".22"/>
+<circle cx="610" cy="275" r="184" fill="url(#t)" stroke="#9bfdd6" stroke-width="3" opacity=".9"/><circle cx="610" cy="275" r="84" fill="#52b89d" opacity=".17"/><circle cx="610" cy="275" r="60" fill="none" stroke="#acf7d9" stroke-width="2" opacity=".48"/><path d="M270 270 C350 190 380 190 434 200" fill="none" stroke="#ffd991" stroke-width="4" stroke-dasharray="7 13"/><circle cx="270" cy="270" r="60" fill="#ffc89a" opacity=".15" stroke="#ffd6b3" stroke-width="4"/><circle cx="275" cy="268" r="18" fill="#f7c18e" opacity=".45"/><text x="42" y="520" fill="#c4f3e4" opacity=".7" font-size="16" font-family="Arial" letter-spacing="4">CELLULAR INTERACTIONS · CONCEPT</text>
+</svg>

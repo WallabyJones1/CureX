@@ -1,9 +1,12 @@
 FROM python:3.12-slim
 WORKDIR /app
-COPY requirements.txt .
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+# Fail the BUILD if GitHub is missing frontend files (rather than crash at runtime).
+RUN python -c "from pathlib import Path; required=['app.py','index.html','app.js','style.css','curex-logo.png','cx-tissue-field.svg']; missing=[x for x in required if not Path(x).is_file()]; assert not missing, 'Missing root files: '+', '.join(missing)"
+RUN python -m py_compile app.py
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 EXPOSE 8000
-CMD ["sh","-c","uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "exec uvicorn app:app --host 0.0.0.0 --port ${PORT:-8000}"]

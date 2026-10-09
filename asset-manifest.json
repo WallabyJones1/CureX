@@ -1,0 +1,50 @@
+{
+  "project": "CureX Network visual assets",
+  "asset_policy": "All cx-*.svg are original programmatically constructed illustrations for this website; not based on actual patient data or structural renderings.",
+  "assets": [
+    {
+      "file": "cx-genomics-map.svg",
+      "origin": "Original CureX project illustration",
+      "license": "Project-original; reuse in CureX website and promotional material",
+      "attribution": "CureX Network visual team"
+    },
+    {
+      "file": "cx-tissue-field.svg",
+      "origin": "Original CureX project illustration",
+      "license": "Project-original; reuse in CureX website and promotional material",
+      "attribution": "CureX Network visual team"
+    },
+    {
+      "file": "cx-agent-network.svg",
+      "origin": "Original CureX project illustration",
+      "license": "Project-original; reuse in CureX website and promotional material",
+      "attribution": "CureX Network visual team"
+    },
+    {
+      "file": "cx-evidence-wave.svg",
+      "origin": "Original CureX project illustration",
+      "license": "Project-original; reuse in CureX website and promotional material",
+      "attribution": "CureX Network visual team"
+    },
+    {
+      "file": "cx-oncology-atlas.svg",
+      "origin": "Original CureX project illustration",
+      "license": "Project-original; reuse in CureX website and promotional material",
+      "attribution": "CureX Network visual team"
+    }
+  ],
+  "user_supplied": [
+    {
+      "file": "curex-logo.png",
+      "origin": "User-supplied CureX logo",
+      "use": "Within CureX identity; permission for unrelated redistribution not assessed"
+    }
+  ],
+  "retained": [
+    {
+      "file": "curex-dna-field.svg",
+      "origin": "Previous CureX project generated vector art",
+      "use": "CureX branded page"
+    }
+  ]
+}
