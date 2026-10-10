@@ -1,0 +1,203 @@
+{
+  "version": "5.3",
+  "items": [
+    {
+      "id": "ai-breast-pathology",
+      "title": "Breast cancer: pathologist vs AI",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Histopathology_of_tumor_identification_by_humans_and_AI.png?width=900",
+      "category": "AI & Pathology",
+      "topic_slug": "agent-evidence-checking",
+      "description": "Whole-slide H&E pathology annotations compared with deep-learning segmentation from a published breast-cancer study.",
+      "tags": [
+        "ai & pathology",
+        "published research figure",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Cruz-Roa A. et al. (2017), Scientific Reports",
+      "attribution": "Cruz-Roa A. et al. (2017), Scientific Reports · CC BY 4.0. Original file: https://commons.wikimedia.org/wiki/File:Histopathology_of_tumor_identification_by_humans_and_AI.png",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Histopathology_of_tumor_identification_by_humans_and_AI.png",
+      "publication_url": "https://doi.org/10.1038/srep46450",
+      "asset_type": "PNG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "ai-breast-annotation",
+      "title": "Automated tumour region identification",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Histopathology_of_tumor_identification_by_AI.png?width=900",
+      "category": "AI & Pathology",
+      "topic_slug": "agent-evidence-checking",
+      "description": "Figure illustrating AI-identified breast tumour regions; see file page for crop and editing history.",
+      "tags": [
+        "ai & pathology",
+        "published research figure",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Mikael Häggström (adaptation of Cruz-Roa et al. figure)",
+      "attribution": "Mikael Häggström (adaptation of Cruz-Roa et al. figure) · CC BY 4.0. Original file: https://commons.wikimedia.org/wiki/File:Histopathology_of_tumor_identification_by_AI.png",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Histopathology_of_tumor_identification_by_AI.png",
+      "publication_url": "https://doi.org/10.1038/srep46450",
+      "asset_type": "PNG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "cancer-plk1-mitosis",
+      "title": "Cancer-cell mitosis by immunofluorescence",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/A_Cancer_Cell_at_Its_Most_Ordered_State.png?width=900",
+      "category": "Cell Microscopy",
+      "topic_slug": "tumour-microenvironment",
+      "description": "Fluorescence micrograph showing PLK1 localisation during mitotic progression, from experimental microscopy.",
+      "tags": [
+        "cell microscopy",
+        "real microscopy",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Amina Aidarbek (2026)",
+      "attribution": "Amina Aidarbek (2026) · CC BY 4.0. Original file: https://commons.wikimedia.org/wiki/File:A_Cancer_Cell_at_Its_Most_Ordered_State.png",
+      "source_url": "https://commons.wikimedia.org/wiki/File:A_Cancer_Cell_at_Its_Most_Ordered_State.png",
+      "publication_url": "https://commons.wikimedia.org/wiki/File:A_Cancer_Cell_at_Its_Most_Ordered_State.png",
+      "asset_type": "PNG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "oral-cancer-fluorescence",
+      "title": "Oral cancer cell fluorescence microscopy",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Fluorescence_microscopy_of_the_oral_cancer_cells.jpg?width=900",
+      "category": "Cell Microscopy",
+      "topic_slug": "tumour-microenvironment",
+      "description": "Fluorescence microscopy of oral-cancer cells. The depicted cells are not an immunotherapy outcome study.",
+      "tags": [
+        "cell microscopy",
+        "real microscopy",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Korinna (2025)",
+      "attribution": "Korinna (2025), Fluorescence microscopy of the oral cancer cells, Wikimedia Commons, CC BY 4.0; source: https://commons.wikimedia.org/wiki/File:Fluorescence_microscopy_of_the_oral_cancer_cells.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Fluorescence_microscopy_of_the_oral_cancer_cells.jpg",
+      "publication_url": "https://commons.wikimedia.org/wiki/File:Fluorescence_microscopy_of_the_oral_cancer_cells.jpg",
+      "asset_type": "JPG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "dividing-cancer-cell",
+      "title": "Dividing cancer cell, three fluorescent labels",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Dividing_Cell_Fluorescence.jpg?width=900",
+      "category": "Cell Microscopy",
+      "topic_slug": "gene-expression-atlas",
+      "description": "Human cancer cell in division showing DNA, tubulin and GFP-INCENP fluorescence.",
+      "tags": [
+        "cell microscopy",
+        "real microscopy",
+        "cancer research"
+      ],
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "creator": "F Lamiot / Wikimedia Commons",
+      "attribution": "F Lamiot / Wikimedia Commons · CC BY-SA 4.0. Original file: https://commons.wikimedia.org/wiki/File:Dividing_Cell_Fluorescence.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Dividing_Cell_Fluorescence.jpg",
+      "publication_url": "https://commons.wikimedia.org/wiki/File:Dividing_Cell_Fluorescence.jpg",
+      "asset_type": "JPG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "pancreatic-histology",
+      "title": "Pancreatic adenocarcinoma histopathology",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Histopathology_of_pancreatic_ductal_adenocarcinoma.jpg?width=900",
+      "category": "Cancer Histology",
+      "topic_slug": "drug-resistance",
+      "description": "Histology figure from a published pancreatic ductal adenocarcinoma study; linked to the source authors.",
+      "tags": [
+        "cancer histology",
+        "published research figure",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Singh P.K. et al. (see original file record)",
+      "attribution": "Singh P.K. et al. (see original file record) · CC BY 4.0. Original file: https://commons.wikimedia.org/wiki/File:Histopathology_of_pancreatic_ductal_adenocarcinoma.jpg",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Histopathology_of_pancreatic_ductal_adenocarcinoma.jpg",
+      "publication_url": "https://commons.wikimedia.org/wiki/File:Histopathology_of_pancreatic_ductal_adenocarcinoma.jpg",
+      "asset_type": "JPG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "cervical-histology",
+      "title": "Cervical squamous carcinoma histopathology",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Histopathology_of_squamous_cell_carcinoma_of_the_cervix.png?width=900",
+      "category": "Cancer Histology",
+      "topic_slug": "biomarker-validation",
+      "description": "Published cervical squamous carcinoma histopathology image used in diagnostic pathology research.",
+      "tags": [
+        "cancer histology",
+        "published research figure",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Li H. et al. (2020), Diagnostic Pathology",
+      "attribution": "Li H. et al. (2020), Diagnostic Pathology · CC BY 4.0. Original file: https://commons.wikimedia.org/wiki/File:Histopathology_of_squamous_cell_carcinoma_of_the_cervix.png",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Histopathology_of_squamous_cell_carcinoma_of_the_cervix.png",
+      "publication_url": "https://doi.org/10.1186/s13000-020-01018-7",
+      "asset_type": "PNG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "metastatic-breast-cells",
+      "title": "Breast cancer cells under microscopy",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Breast_Cancer_Cells.png?width=900",
+      "category": "Cell Microscopy",
+      "topic_slug": "metastatic-niches",
+      "description": "Cancer-cell microscopy submitted to the Wiki Science Competition 2017.",
+      "tags": [
+        "cell microscopy",
+        "real microscopy",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Carusos123 / Wiki Science Competition 2017",
+      "attribution": "Carusos123 / Wiki Science Competition 2017 · CC BY 4.0. Original file: https://commons.wikimedia.org/wiki/File:Breast_Cancer_Cells.png",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Breast_Cancer_Cells.png",
+      "publication_url": "https://commons.wikimedia.org/wiki/File:Breast_Cancer_Cells.png",
+      "asset_type": "PNG",
+      "is_medical_data": true,
+      "external_hosted": true
+    },
+    {
+      "id": "histology-endometrial",
+      "title": "Endometrioid adenocarcinoma histology",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Histopathology_of_well-differentiated_endometrioid_adenocarcinoma.png?width=900",
+      "category": "Cancer Histology",
+      "topic_slug": "biomarker-validation",
+      "description": "Published histopathology of endometrioid adenocarcinoma with original source attribution.",
+      "tags": [
+        "cancer histology",
+        "published research figure",
+        "cancer research"
+      ],
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "creator": "Yuri T. et al. (see original Commons record)",
+      "attribution": "Yuri T. et al. (see original Commons record) · CC BY 4.0. Original file: https://commons.wikimedia.org/wiki/File:Histopathology_of_well-differentiated_endometrioid_adenocarcinoma.png",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Histopathology_of_well-differentiated_endometrioid_adenocarcinoma.png",
+      "publication_url": "https://commons.wikimedia.org/wiki/File:Histopathology_of_well-differentiated_endometrioid_adenocarcinoma.png",
+      "asset_type": "PNG",
+      "is_medical_data": true,
+      "external_hosted": true
+    }
+  ]
+}

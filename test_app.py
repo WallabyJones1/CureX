@@ -102,7 +102,7 @@ def test_self_review_counts_as_discussion():
 
 
 def test_daily_cap(monkeypatch):
-    monkeypatch.setattr(appmod, "DAILY_POINT_CAP", 20)
+    monkeypatch.setattr(appmod, "FREE_TIER", appmod.bondlib.Tier("free", "Free", 0, 10, 20))
     h, _ = register()
     assert thread(h)["points"] == 15
     assert thread(h)["points"] == 5

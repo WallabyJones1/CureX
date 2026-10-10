@@ -1,44 +1,27 @@
-# CureX Network — visual asset rights inventory (v3)
+# CureX v5.3 — Research image licence register
 
-Updated: 9 October 2026
+**This gallery contains real externally hosted research figures and microscopy, not CureX-generated imagery.**
 
-## Assets actually bundled in the release
+The image files are displayed from Wikimedia Commons via its `Special:FilePath` redirect. No copyrighted third-party image files are bundled into the ZIP, and CureX does not claim their ownership or imply the authors endorse CureX or $CUREX. Browser requests to Wikimedia Commons are disclosed in the privacy policy. If the file host is temporarily unavailable, use the original source link.
 
-| Asset | Origin | Approved use / notes |
-|---|---|---|
-| `static/assets/cx-tissue-field.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; **concept art**, not microscopy or real biological data |
-| `static/assets/cx-oncology-atlas.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; **not a clinical cell image** |
-| `static/assets/cx-genomics-map.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; synthetic non-scientific illustration, **not measured expression data** |
-| `static/assets/cx-agent-network.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; conceptual agent graph |
-| `static/assets/cx-evidence-wave.svg` | Original procedurally drawn SVG for CureX | Website / launch visuals; conceptual evidence wave |
-| `cx-reward-flow.svg` | Original procedurally drawn SVG for CureX (v5) | Rewards page hero, dashboard background; conceptual reward orbit |
-| `cx-library.svg` | Original procedurally drawn SVG for CureX (v5) | Resources page hero; conceptual research library |
-| Inline diagrams in `app.js` | Original CureX diagrams (v5) | Contribution loop, rewards flywheel, architecture, epoch timeline, roadmap, badges |
-| `static/assets/curex-dna-field.svg` | Retained from previous CureX prototype | Existing CureX project illustration |
-| `static/assets/curex-logo.png` | Derived from project's **user-provided** branding reference | Use for CureX branding only; permissions for republishing it independently are not determined |
-| `static/assets/original-header.jpg` | Retained user-provided reference / earlier header | Archive / in-project use only |
+**Image-specific CC BY 4.0 attribution:** Credit creator, image title, licence URL and original source URL when reusing. **CC BY-SA 4.0** also imposes share-alike requirements for adaptations; follow the work's original terms. The full authoritative record is `image-library.json` and the public `/asset-credits` page.
 
-The **MIT LICENSE in this repository covers software**, not necessarily the CureX mark or user-provided reference images. No claim is made to third-party trademarks, research images, or stock-token logos. New original illustrations are provided for use in this CureX project. For redistribution independent of CureX, obtain appropriate permission from the project rights-holder.
+| Gallery image | Original creator / publication | Licence | File record |
+|---|---|---|---|
+| Breast cancer: pathologist vs AI | Cruz-Roa A. et al. (2017), Scientific Reports | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Histopathology_of_tumor_identification_by_humans_and_AI.png) |
+| Automated tumour region identification | Mikael Häggström (adaptation of Cruz-Roa et al. figure) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Histopathology_of_tumor_identification_by_AI.png) |
+| Cancer-cell mitosis by immunofluorescence | Amina Aidarbek (2026) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:A_Cancer_Cell_at_Its_Most_Ordered_State.png) |
+| Oral cancer cell fluorescence microscopy | Korinna (2025) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Fluorescence_microscopy_of_the_oral_cancer_cells.jpg) |
+| Dividing cancer cell, three fluorescent labels | F Lamiot / Wikimedia Commons | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Dividing_Cell_Fluorescence.jpg) |
+| Pancreatic adenocarcinoma histopathology | Singh P.K. et al. (see original file record) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Histopathology_of_pancreatic_ductal_adenocarcinoma.jpg) |
+| Cervical squamous carcinoma histopathology | Li H. et al. (2020), Diagnostic Pathology | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Histopathology_of_squamous_cell_carcinoma_of_the_cervix.png) |
+| Breast cancer cells under microscopy | Carusos123 / Wiki Science Competition 2017 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Breast_Cancer_Cells.png) |
+| Endometrioid adenocarcinoma histology | Yuri T. et al. (see original Commons record) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) | [Original file](https://commons.wikimedia.org/wiki/File:Histopathology_of_well-differentiated_endometrioid_adenocarcinoma.png) |
 
-## Independent, officially documented asset libraries for future use
+## Additional third-party source policy
 
-**Health Icons — CC0** (commercial use and modification without attribution). Verified: [healthicons.org/about](https://healthicons.org/about) and [repository](https://github.com/resolvetosavelives/healthicons). Useful for anatomy, lab, imaging and research navigation. **No Health Icons artwork is bundled yet.**
+- **RCSB PDB:** Structure summary imagery and structural datasets are generally CC0; editorial Molecule of the Month illustrations are CC BY 4.0. See <https://www.rcsb.org/pages/usage-policy>.
+- **National Cancer Institute:** Its graphics have mixed rights. Only items explicitly credited to NCI are copyright-free; avoid implying NCI endorsement. See <https://www.cancer.gov/policies/copyright-reuse>.
+- **PMC / Europe PMC:** A freely available scientific publication is **not** automatically free to reproduce. Inspect the specific licence and image credit; licensing can vary even within open-access collections.
 
-**Servier Medical Art — CC BY 4.0 illustrations.** Allows commercial adaptation with attribution, licence link and modification notice. Their website text, logos, branding and interface are not covered by this illustration licence. [Official citation guide](https://smart.servier.com/how-to-cite-servier-medical-art/) and [terms](https://smart.servier.com/terms-of-use/). **No Servier files bundled yet.**
-
-**RCSB Protein Data Bank — structure data and structure-summary imagery CC0.** Their *Molecule of the Month* series uses **CC BY 4.0** and other text and site elements can have distinct restrictions. Credit RCSB PDB and original structure authors where possible; include specific PDB IDs for any structure art. [Usage policy](https://www.rcsb.org/pages/usage-policy). **No RCSB images or data are bundled yet.**
-
-**Bioicons — licence varies by individual icon.** Do not assume the entire library is CC0; each selected item may require attribution or carry share-alike terms. [Library](https://bioicons.com/), [licence explanation](https://github.com/duerrsimon/bioicons/blob/main/README.md). **No Bioicons files bundled yet.**
-
-## Rules for adding a future asset
-
-1. Record its original creator, asset title, exact source URL, download date and licence URL.
-2. Verify the terms for **the specific image**, including commercial usage, modifications, model imagery, and any trademark/personality rights.
-3. Store a copy of its licence/attribution notice and add a public credit in `/asset-credits` where required.
-4. Keep scientific images labelled with their original accession, figure reference and interpretation limits. Don't pass concept art off as measurements.
-5. Strip identifying patient metadata from any uploaded images; do not accept private medical images in the public forum.
-6. Keep assets local where permissible to avoid third-party tracking, licence surprises, broken links and slow rendering.
-
-## Where the source inventory lives
-
-See `static/assets/asset-manifest.json` for the machine-readable list of newly created and retained assets. Public attribution and source links are also available at `/asset-credits`.
+The CureX DNA icon remains project-provided branding. Source code copyright does not extend to third-party scientific images. Any remaining abstract decorative SVGs used for site chrome are visual design, not research results.

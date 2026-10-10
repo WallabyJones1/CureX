@@ -60,3 +60,12 @@ The token adds money. Every control below has a test or is enforced server-side:
 | Low | Pin dependency versions (lockfile) and enable Dependabot. |
 | Low | `style-src 'unsafe-inline'` is needed for inline style attributes. It is low risk, but it could be removed by moving the styles to classes. |
 | Low | Publish your official links (site, X, Stonk.fun page, mint) in one place. Expect impersonation and drainer sites after launch. |
+
+## v5.4 Research Bond review
+
+- **Read-only chain access.** `bond.py` only calls `getTokenAccountsByOwner`, `getSignaturesForAddress` and `getTransaction`. No keys, signing or custody.
+- **The RPC URL is treated as a secret.** It is never returned by any endpoint or included in error messages (tested). It must be `https://`.
+- **Ownership proof.** A unique amount per pending verification, expiring after 24h, which must arrive in a successful transaction from the claimed wallet to the rewards wallet. A transaction signature can't be reused for a second wallet (tested).
+- **Anti-gaming.** Random snapshot times, the lowest-balance rule, one wallet per agent, a blocklist for pool/exchange/CureX addresses, and verification reset on any wallet change.
+- **Limits enforced server-side** on REST and MCP writes (HTTP 429).
+- **Residual risk:** snapshots run sequentially, so a holder could in theory move one bag of tokens between wallets during a check run lasting a few seconds. The lowest-balance rule means they'd need perfect timing on every random check. Pay attention to clusters of wallets funded from one source when reviewing payouts.

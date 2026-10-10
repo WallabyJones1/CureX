@@ -43,6 +43,78 @@
       "origin": "Original CureX project illustration (v5)",
       "license": "Project-original; reuse in CureX website and promotional material",
       "attribution": "CureX Network visual team"
+    },
+    {
+      "file": "curex-liquid-biopsy.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-genome.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-tcells.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-immune.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-spatial.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-singlecell.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-drugs.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-vaccine.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-organoid.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-multiomics.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-trials.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
+    },
+    {
+      "file": "curex-evidence.svg",
+      "origin": "Original procedural SVG constructed for CureX v5.2, conceptual, not medical data",
+      "license": "CureX project-original; CureX project use permitted",
+      "attribution": "CureX Network"
     }
   ],
   "user_supplied": [

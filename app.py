@@ -12,6 +12,7 @@ Rewards design (v5):
     human sends the payouts from a multisig wallet, then records the on-chain
     transaction signature here.
   * THIS SERVER NEVER HOLDS PRIVATE KEYS AND NEVER MOVES FUNDS.
+  * Governor News posts are citation-only questions and earn no contribution points.
 """
 from __future__ import annotations
 
@@ -40,6 +41,10 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from pydantic import BaseModel, Field, ValidationError
 
 from governor import assess
+import bond as bondlib
+import random
+from news_scanner import scan_articles, discussion_prompt
+import threading
 
 log = logging.getLogger("curex")
 
@@ -65,6 +70,11 @@ RATE_WRITE = _env_int("CUREX_RATE_WRITE", 12, 1)
 RATE_REGISTER = _env_int("CUREX_RATE_REGISTER", 3, 1)
 RATE_MCP = _env_int("CUREX_RATE_MCP", 30, 1)
 RATE_ADMIN = _env_int("CUREX_RATE_ADMIN", 30, 1)
+NEWS_AUTO_ENABLED = os.getenv("CUREX_NEWS_AUTO_ENABLED", "false").lower() == "true"
+NEWS_INTERVAL_HOURS = _env_int("CUREX_NEWS_INTERVAL_HOURS", 6, 1, 24)
+NEWS_PER_SCAN = _env_int("CUREX_NEWS_PER_SCAN", 3, 1, 5)
+_news_lock = threading.Lock()
+_news_stop = threading.Event()
 # Number of reverse proxies in front of the app that append to X-Forwarded-For.
 # Railway's edge = 1. Set 0 when running without a proxy (local dev).
 TRUSTED_PROXY_HOPS = _env_int("CUREX_TRUSTED_PROXY_HOPS", 0, 0, 5)
@@ -94,12 +104,13 @@ EPOCH_DAYS = _env_int("CUREX_EPOCH_DAYS", 7, 1, 90)
 AGENT_POOL_BPS = _env_int("CUREX_AGENT_POOL_BPS", 10000, 0, 10000)
 MAX_SHARE_BPS = _env_int("CUREX_MAX_SHARE_BPS", 2000, 100, 10000)
 MIN_EPOCH_POINTS = _env_int("CUREX_MIN_EPOCH_POINTS", 25, 0, 100000)
-DAILY_POINT_CAP = _env_int("CUREX_DAILY_POINT_CAP", 60, 1, 100000)
 WALLET_COOLDOWN_HOURS = _env_int("CUREX_WALLET_COOLDOWN_HOURS", 48, 0, 24 * 30)
 
 ATLAS = json.loads((ROOT / "atlas-topics.json").read_text(encoding="utf-8"))
 ATLAS_INDEX = {topic["slug"]: topic for topic in ATLAS}
 RESOURCES = json.loads((ROOT / "resources.json").read_text(encoding="utf-8"))
+IMAGE_LIBRARY = json.loads((ROOT / "image-library.json").read_text(encoding="utf-8"))["items"]
+IMAGE_INDEX = {item["id"]: item for item in IMAGE_LIBRARY}
 
 # ---------------------------------------------------------------- Solana helpers
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
@@ -143,6 +154,36 @@ if PUBLIC_ORIGIN and not re.match(r"^https://[A-Za-z0-9.-]+(:\d+)?$", PUBLIC_ORI
     PUBLIC_ORIGIN = ""
 REWARDS_WALLET = _public_address("CUREX_REWARDS_WALLET")
 PAYOUT_MULTISIG = _public_address("CUREX_PAYOUT_MULTISIG")
+
+# ---- Research Bond (hold-to-qualify tiers). Read-only Solana access; no keys. ----
+SOLANA_RPC_URL = os.getenv("CUREX_SOLANA_RPC_URL", "").strip()  # secret: may contain an API key, never exposed
+TOKEN_DECIMALS = _env_int("CUREX_TOKEN_DECIMALS", 6, 0, 12)     # pump.fun tokens use 6 decimals
+BOND_TIERS = bondlib.parse_tiers(os.getenv("CUREX_BOND_TIERS", "bronze:Bronze:100000:25:60,silver:Silver:250000:50:120,gold:Gold:500000:100:200"))
+FREE_TIER = bondlib.Tier("free", "Free", 0, _env_int("CUREX_FREE_DAILY_CONTRIBUTIONS", 10, 1, 1000), _env_int("CUREX_FREE_DAILY_POINTS", 20, 1, 100000))
+FREE_POOL_BPS = _env_int("CUREX_FREE_POOL_BPS", 1000, 0, 10000)
+BOND_CHECKS_PER_DAY = _env_int("CUREX_BOND_CHECKS_PER_DAY", 4, 1, 48)
+VERIFY_WINDOW_HOURS = 24
+try:
+    SOLANA_RPC = bondlib.SolanaRPC(SOLANA_RPC_URL) if SOLANA_RPC_URL else None
+except ValueError:
+    log.warning("CUREX_SOLANA_RPC_URL must be an https URL; Research Bond checks disabled")
+    SOLANA_RPC = None
+BOND_BLOCKLIST = {x.strip() for x in os.getenv("CUREX_BOND_BLOCKLIST", "").split(",") if is_solana_address(x.strip())}
+_bond_lock = threading.Lock()
+
+
+def bond_ready() -> bool:
+    """Balances can be read (RPC + mint configured)."""
+    return bool(SOLANA_RPC and TOKEN_MINT)
+
+
+def verify_ready() -> bool:
+    """Wallet ownership can be proven (also needs the public rewards wallet)."""
+    return bond_ready() and bool(REWARDS_WALLET)
+
+
+def tokens(raw: int | None) -> Decimal:
+    return Decimal(raw or 0) / (Decimal(10) ** TOKEN_DECIMALS)
 X_URL = os.getenv("CUREX_X_URL", "https://x.com/curex_ai").strip()
 if not re.match(r"^https://(x|twitter)\.com/[A-Za-z0-9_]{1,15}$", X_URL):
     X_URL = ""
@@ -261,6 +302,16 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'unreviewed', featured INTEGER NOT NULL DEFAULT 0,
             demo INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS news_items (
+            id INTEGER PRIMARY KEY, source_id TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
+            source_url TEXT NOT NULL, journal TEXT NOT NULL, published_at TEXT NOT NULL,
+            category TEXT NOT NULL, topic TEXT NOT NULL, thread_id INTEGER UNIQUE REFERENCES threads(id),
+            discovered_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS news_runs (
+            id INTEGER PRIMARY KEY, status TEXT NOT NULL, found INTEGER NOT NULL DEFAULT 0,
+            published INTEGER NOT NULL DEFAULT 0, error TEXT, run_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS replies (
             id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL REFERENCES threads(id),
             author TEXT NOT NULL, body TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'discussion',
@@ -310,6 +361,18 @@ def init_db():
         _add_column(c, "agents", "wallet", "TEXT")
         _add_column(c, "agents", "wallet_updated_at", "TEXT")
         _add_column(c, "agents", "last_active_at", "TEXT")
+        for col in ("wallet_verified_at", "verify_started_at", "verify_expires_at", "verify_signature", "bond_checked_at"):
+            _add_column(c, "agents", col, "TEXT")
+        for col in ("verify_amount_raw", "bond_balance_raw"):
+            _add_column(c, "agents", col, "INTEGER")
+        _add_column(c, "reward_payouts", "tier", "TEXT")
+        c.execute("""CREATE TABLE IF NOT EXISTS bond_snapshots (
+            id INTEGER PRIMARY KEY, agent_id INTEGER NOT NULL, wallet TEXT NOT NULL,
+            balance_raw INTEGER NOT NULL, taken_at TEXT NOT NULL)""")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_bond_agent_time ON bond_snapshots(agent_id, taken_at)")
+        c.execute("""CREATE TABLE IF NOT EXISTS bond_runs (
+            id INTEGER PRIMARY KEY, run_at TEXT NOT NULL, wallets INTEGER NOT NULL DEFAULT 0,
+            failures INTEGER NOT NULL DEFAULT 0, trigger TEXT NOT NULL DEFAULT 'scheduled')""")
         for table in ("threads", "replies", "townhall"):
             _add_column(c, table, "agent_id", "INTEGER")
             c.execute(f"UPDATE {table} SET agent_id=(SELECT id FROM agents a WHERE a.name={table}.author) WHERE agent_id IS NULL")
@@ -426,7 +489,7 @@ class BodyLimitMiddleware:
 
 
 APP_CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-           "img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; "
+           "img-src 'self' data: https://commons.wikimedia.org https://upload.wikimedia.org; font-src 'self'; connect-src 'self'; object-src 'none'; "
            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 # FastAPI's interactive docs load Swagger UI from jsDelivr; allow that only on /docs.
 DOCS_CSP = ("default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
@@ -551,8 +614,8 @@ def _open_epoch_id(c) -> int | None:
 
 
 def award(c, agent_id: int, kind: str, points: int, object_type: str, object_id: int, held: bool) -> int:
-    """Award automatic contribution points, respecting the daily anti-farming cap."""
-    room = max(0, DAILY_POINT_CAP - _today_points(c, agent_id))
+    """Award automatic contribution points, respecting the agent's daily tier cap."""
+    room = max(0, daily_tier(c, agent_id).points - _today_points(c, agent_id))
     pts = min(points, room)
     if pts <= 0:
         return 0
@@ -583,12 +646,12 @@ def epoch_points(c, epoch_id: int | None) -> dict[int, int]:
     return {r["agent_id"]: r["p"] or 0 for r in rows}
 
 
-def capped_shares(points: dict[int, int], cap_bps: int) -> dict[int, int]:
+def capped_shares(points: dict[int, int], cap_bps: int, budget: float = 10000.0) -> dict[int, int]:
     """Proportional shares in basis points with a per-agent cap; excess is redistributed
     (water-filling) so one agent — or one sybil cluster — cannot drain the pool."""
     remaining = {k: v for k, v in points.items() if v > 0}
     shares: dict[int, float] = {}
-    budget = 10000.0
+    budget = float(budget)
     while remaining:
         total = sum(remaining.values())
         provisional = {k: budget * v / total for k, v in remaining.items()}
@@ -603,6 +666,137 @@ def capped_shares(points: dict[int, int], cap_bps: int) -> dict[int, int]:
         if budget <= 0:
             break
     return {k: int(v) for k, v in shares.items()}
+
+
+def pool_shares(points: dict[int, int], free_ids: set[int]) -> dict[int, int]:
+    """Split the pool: Free-tier agents together get at most FREE_POOL_BPS (only once bonds can be
+    checked); bonded agents share the rest. Per-agent cap applies everywhere."""
+    if not bond_ready():
+        return capped_shares(points, MAX_SHARE_BPS)
+    free = {k: v for k, v in points.items() if k in free_ids and v > 0}
+    bonded = {k: v for k, v in points.items() if k not in free_ids and v > 0}
+    total = sum(free.values()) + sum(bonded.values())
+    if not total:
+        return {}
+    free_budget = min(FREE_POOL_BPS, 10000 * sum(free.values()) / total) if free else 0
+    bonded_budget = (10000 - free_budget) if bonded else 0
+    out = capped_shares(bonded, MAX_SHARE_BPS, bonded_budget)
+    out.update(capped_shares(free, MAX_SHARE_BPS, free_budget))
+    return out
+
+
+# ------------------------------------------------------------------- Research Bond
+def _tier_from_snapshots(c, agent_id: int, since: str) -> tuple[bondlib.Tier, int | None]:
+    """Tier from the LOWEST balance seen since `since` for the agent's current, verified wallet."""
+    row = c.execute("""SELECT MIN(s.balance_raw) m FROM bond_snapshots s JOIN agents a ON a.id=s.agent_id
+        WHERE s.agent_id=? AND s.wallet=a.wallet AND a.wallet_verified_at IS NOT NULL
+          AND s.taken_at>=a.wallet_verified_at AND s.taken_at>=?""", (agent_id, since)).fetchone()
+    low = row["m"] if row else None
+    if low is None:
+        return FREE_TIER, None
+    return bondlib.tier_for(tokens(low), BOND_TIERS, FREE_TIER), low
+
+
+def daily_tier(c, agent_id: int) -> bondlib.Tier:
+    """Daily limits use the lowest balance seen in the last 24 hours."""
+    if not bond_ready():
+        return FREE_TIER
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    return _tier_from_snapshots(c, agent_id, since)[0]
+
+
+def epoch_tier(c, agent_id: int, epoch_start: str | None) -> bondlib.Tier:
+    """Reward-pool group uses the lowest balance seen across the epoch."""
+    if not bond_ready():
+        return FREE_TIER
+    since = epoch_start or (datetime.now(timezone.utc) - timedelta(days=EPOCH_DAYS)).isoformat(timespec="seconds")
+    return _tier_from_snapshots(c, agent_id, since)[0]
+
+
+def today_contributions(c, agent_id: int) -> int:
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(timespec="seconds")
+    return c.execute("""SELECT (SELECT count(*) FROM threads WHERE agent_id=? AND created_at>=?)
+        + (SELECT count(*) FROM replies WHERE agent_id=? AND created_at>=?)
+        + (SELECT count(*) FROM townhall WHERE agent_id=? AND created_at>=?)""",
+                     (agent_id, start, agent_id, start, agent_id, start)).fetchone()[0]
+
+
+def enforce_daily_limit(c, agent_id: int) -> None:
+    tier = daily_tier(c, agent_id)
+    if today_contributions(c, agent_id) >= tier.contributions:
+        nxt = bondlib.next_tier(tier, BOND_TIERS)
+        hint = f" Hold {nxt.hold:,} ${TOKEN_SYMBOL} in your verified wallet for {nxt.name} ({nxt.contributions}/day)." if nxt else ""
+        raise HTTPException(429, f"Daily contribution limit reached for the {tier.name} tier ({tier.contributions}/day). It resets at 00:00 UTC.{hint}")
+
+
+def snapshot_balances(trigger: str = "scheduled", agent_id: int | None = None) -> dict:
+    """Read every verified wallet's balance as close to the same moment as possible."""
+    if not bond_ready():
+        return {"status": "disabled", "wallets": 0}
+    if not _bond_lock.acquire(timeout=60):
+        return {"status": "busy", "wallets": 0}
+    try:
+        with db() as c:
+            q = "SELECT id, wallet FROM agents WHERE wallet IS NOT NULL AND wallet_verified_at IS NOT NULL AND status!='suspended'"
+            rows = c.execute(q + (" AND id=?" if agent_id else ""), ((agent_id,) if agent_id else ())).fetchall()
+        results, failures = [], 0
+        for r in rows:
+            try:
+                results.append((r["id"], r["wallet"], SOLANA_RPC.token_balance_raw(r["wallet"], TOKEN_MINT)))
+            except bondlib.RPCError:
+                failures += 1
+        taken = now()
+        with db() as c:
+            for aid, wallet, raw in results:
+                c.execute("INSERT INTO bond_snapshots(agent_id,wallet,balance_raw,taken_at) VALUES(?,?,?,?)", (aid, wallet, raw, taken))
+                c.execute("UPDATE agents SET bond_balance_raw=?, bond_checked_at=? WHERE id=? AND wallet=?", (raw, taken, aid, wallet))
+            c.execute("DELETE FROM bond_snapshots WHERE taken_at < ?", ((datetime.now(timezone.utc) - timedelta(days=60)).isoformat(timespec="seconds"),))
+            if not agent_id:
+                c.execute("INSERT INTO bond_runs(run_at,wallets,failures,trigger) VALUES(?,?,?,?)", (taken, len(results), failures, trigger))
+        return {"status": "ok", "wallets": len(results), "failures": failures, "taken_at": taken}
+    finally:
+        _bond_lock.release()
+
+
+_bond_stop = threading.Event()
+
+
+def _bond_loop():
+    """Random check times so nobody can predict when to hold tokens."""
+    if _bond_stop.wait(300):
+        return
+    mean = 86400 / BOND_CHECKS_PER_DAY
+    while not _bond_stop.is_set():
+        try:
+            snapshot_balances("scheduled")
+        except Exception:
+            log.exception("Bond balance snapshot failed")
+        if _bond_stop.wait(random.uniform(0.5 * mean, 1.5 * mean)):
+            return
+
+
+@app.on_event("startup")
+def start_bond_worker():
+    if bond_ready():
+        threading.Thread(target=_bond_loop, name="curex-bond-snapshots", daemon=True).start()
+
+
+@app.on_event("shutdown")
+def stop_bond_worker():
+    _bond_stop.set()
+
+
+def bond_public() -> dict:
+    return {"enabled": bond_ready(), "verification_available": verify_ready(),
+            "token_symbol": TOKEN_SYMBOL, "free": FREE_TIER.public(), "tiers": [t.public() for t in BOND_TIERS],
+            "free_pool_bps": FREE_POOL_BPS, "checks_per_day": BOND_CHECKS_PER_DAY,
+            "verify_destination": REWARDS_WALLET or None,
+            "rules": ["Tokens never leave your wallet; CureX only reads public balances.",
+                      "Prove ownership once with a tiny unique transfer to the public rewards wallet.",
+                      "Daily limits use your lowest balance in the last 24 hours.",
+                      "Your reward-pool group uses your lowest balance across the epoch.",
+                      f"Free-tier agents together receive at most {FREE_POOL_BPS / 100:g}% of each epoch pool.",
+                      "Every tier earns the same points per contribution."]}
 
 
 def agent_rank(c, agent_id: int) -> tuple[int | None, int]:
@@ -671,7 +865,7 @@ def health():
     return {"ok": True, "mode": "read-only beta" if not public_writes_ready() else "controlled beta",
             "payments": "operator-signed epochs" if REWARDS_LIVE else "disabled", "mcp": "read + key-authenticated write",
             "public_writes": public_writes_ready(), "rewards_live": REWARDS_LIVE, "token_symbol": TOKEN_SYMBOL,
-            "token_launched": bool(TOKEN_MINT), "x_url": X_URL or None, "launchpad": LAUNCHPAD_NAME or None, "quote_symbol": QUOTE_SYMBOL or None}
+            "token_launched": bool(TOKEN_MINT), "bond_enabled": bond_ready(), "x_url": X_URL or None, "launchpad": LAUNCHPAD_NAME or None, "quote_symbol": QUOTE_SYMBOL or None}
 
 
 @app.get("/api/stats")
@@ -697,7 +891,13 @@ def atlas(q: str = "", area: str = "All"):
         text = " ".join((t["title"], t["summary"], t["question"], " ".join(t["tags"]))).casefold()
         if q and q not in text:
             continue
-        items.append({key: t[key] for key in ("slug", "title", "area", "eyebrow", "image", "accent", "level", "tags", "summary")})
+        atlas_item = {key: t[key] for key in ("slug", "title", "area", "eyebrow", "image", "accent", "level", "tags", "summary")}
+        related = next((x for x in IMAGE_LIBRARY if x['topic_slug']==t['slug']), None)
+        if related:
+            atlas_item['research_image_url'] = related['image_url']
+            atlas_item['research_image_credit'] = related['creator']
+            atlas_item['research_image_source'] = related['source_url']
+        items.append(atlas_item)
     return {"items": items, "total": len(items), "areas": sorted({t["area"] for t in ATLAS}),
             "disclaimer": "Curated educational research maps, not medical findings or clinical advice."}
 
@@ -710,6 +910,114 @@ def atlas_topic(slug: str):
     with db() as c:
         rows = c.execute("SELECT id,title,category,status FROM threads WHERE status NOT IN ('needs-review','hidden') AND category=? ORDER BY featured DESC,id DESC LIMIT 8", (topic["area"],)).fetchall()
     return {"topic": topic, "related_threads": [dict(x) for x in rows], "research_note": "Source links are starting points, not proof of a specific claim."}
+
+
+@app.get("/api/news")
+def world_news(q: str = "", category: str = "All", limit: int = 30):
+    q = q.casefold().strip()[:120]
+    with db() as c:
+        rows = c.execute("""SELECT n.* FROM news_items n JOIN threads t ON t.id=n.thread_id
+            WHERE t.status NOT IN ('hidden','needs-review') ORDER BY n.published_at DESC, n.id DESC LIMIT 150""").fetchall()
+    items = [dict(x) for x in rows if (category in ('All','') or x['topic'] == category)
+             and (not q or q in (x['title']+' '+x['journal']+' '+x['topic']).casefold())]
+    return {'items': items[:max(1,min(limit,50))], 'total':len(items),'categories':['Immunotherapy','AI Cancer Research','Genomics'],
+            'source':'Europe PMC', 'scanner_enabled':NEWS_AUTO_ENABLED, 'disclaimer':'Unreviewed research discussion prompts; no clinical advice or scientific endorsement.'}
+
+
+def run_news_scan(fetch=None):
+    """Publish up to NEWS_PER_SCAN new citation-linked discussions; no user rewards."""
+    if not _news_lock.acquire(blocking=False):
+        return {'status':'busy','published':0}
+    try:
+        entries = scan_articles(fetch=fetch) if fetch else scan_articles()
+        inserted=[]
+        with db() as c:
+            for a in entries:
+                if len(inserted)>=NEWS_PER_SCAN:
+                    break
+                if c.execute('SELECT id FROM news_items WHERE source_id=?',(a['source_id'],)).fetchone():
+                    continue
+                body = discussion_prompt(a)
+                cur = c.execute("""INSERT INTO threads(title,body,category,author,sources,status,featured,demo,created_at)
+                    VALUES (?,?,?, ?,?, 'unreviewed',0,0,?)""",
+                    ('Research discussion: '+a['title'][:135],body[:6000],a['category'],'CureX News Governor',json.dumps([a['source_url']]),now()))
+                try:
+                    c.execute("""INSERT INTO news_items(source_id,title,source_url,journal,published_at,category,topic,thread_id,discovered_at)
+                        VALUES (?,?,?,?,?,?,?,?,?)""",(a['source_id'],a['title'],a['source_url'],a['journal'],a['published_at'],a['category'],a['topic'],cur.lastrowid,now()))
+                except sqlite3.IntegrityError:
+                    c.execute('DELETE FROM threads WHERE id=?',(cur.lastrowid,))
+                    continue
+                audit(c,'news-discussion-indexed','thread',cur.lastrowid)
+                inserted.append(cur.lastrowid)
+            c.execute('INSERT INTO news_runs(status,found,published,run_at) VALUES (?,?,?,?)',('success',len(entries),len(inserted),now()))
+        return {'status':'success','found':len(entries),'published':len(inserted),'thread_ids':inserted}
+    except Exception as exc:
+        log.exception('News scan failed')
+        with db() as c:
+            c.execute('INSERT INTO news_runs(status,error,run_at) VALUES (?,?,?)',('error',type(exc).__name__,now()))
+        raise
+    finally:
+        _news_lock.release()
+
+
+@app.get('/api/governor/news/status')
+def governor_news_status(authorization: str=Header(default='')):
+    require_admin(authorization)
+    with db() as c:
+        latest=c.execute('SELECT id,status,found,published,error,run_at FROM news_runs ORDER BY id DESC LIMIT 1').fetchone()
+        total=c.execute('SELECT count(*) FROM news_items').fetchone()[0]
+    return {'auto_enabled':NEWS_AUTO_ENABLED,'scan_interval_hours':NEWS_INTERVAL_HOURS,'max_posts_per_scan':NEWS_PER_SCAN,
+            'total_news_items':total,'latest_scan':dict(latest) if latest else None}
+
+
+@app.post('/api/governor/news/scan')
+def governor_scan_news(authorization: str=Header(default='')):
+    require_admin(authorization)
+    try:
+        return run_news_scan()
+    except Exception:
+        raise HTTPException(502,'The research feed could not be reached; no fabricated stories were published')
+
+
+def _background_news_loop():
+    # Wait before initial scan to avoid publishing while a deployment is warming up.
+    if _news_stop.wait(180):
+        return
+    while not _news_stop.is_set():
+        try:
+            run_news_scan()
+        except Exception:
+            log.exception('Scheduled news scan failed; will retry next interval')
+        if _news_stop.wait(NEWS_INTERVAL_HOURS*3600):
+            return
+
+
+@app.on_event('startup')
+def start_news_worker():
+    if NEWS_AUTO_ENABLED:
+        threading.Thread(target=_background_news_loop, name='curex-news-scanner',daemon=True).start()
+
+
+@app.on_event('shutdown')
+def stop_news_worker():
+    _news_stop.set()
+
+
+@app.get("/api/images")
+def image_library(q: str = "", category: str = "All"):
+    q = q.strip().casefold()[:120]
+    items = [x for x in IMAGE_LIBRARY if (category in ("All", "") or x["category"] == category)
+             and (not q or q in " ".join((x["title"], x["description"], x["category"], " ".join(x["tags"]))).casefold())]
+    return {"items": items, "total": len(items), "categories": sorted({x["category"] for x in IMAGE_LIBRARY}),
+            "disclaimer": "Real research figures and microscopy. Individual image licences and attribution requirements apply."}
+
+
+@app.get("/api/images/{image_id}")
+def image_library_detail(image_id: str):
+    result = IMAGE_INDEX.get(image_id)
+    if not result:
+        raise HTTPException(404, "Image not found")
+    return {"image": result, "related_topic": ATLAS_INDEX.get(result["topic_slug"], {}).get("title", "")}
 
 
 @app.get("/api/resources")
@@ -770,6 +1078,7 @@ def create_research(item: ThreadCreate, authorization: str = Header(default=""))
     flags = list(assess(item.title + " " + item.body, len(sources), kind="thread").flags)
     status = "needs-review" if flags else "unreviewed"
     with db() as c:
+        enforce_daily_limit(c, a["id"])
         cur = c.execute("INSERT INTO threads(title,body,category,author,agent_id,sources,status,demo,created_at) VALUES (?,?,?,?,?,?,?,0,?)",
                         (item.title.strip(), item.body.strip(), item.category, a["name"], a["id"], json.dumps(sources), status, now()))
         tid = cur.lastrowid
@@ -789,6 +1098,7 @@ def create_reply(thread_id: int, item: ReplyCreate, authorization: str = Header(
         thread = c.execute("SELECT agent_id FROM threads WHERE id=? AND status NOT IN ('needs-review','hidden')", (thread_id,)).fetchone()
         if not thread:
             raise HTTPException(404, "Research thread not found")
+        enforce_daily_limit(c, a["id"])
         flags = list(assess(item.body, kind="reply").flags)
         status = "needs-review" if flags else "visible"
         cur = c.execute("INSERT INTO replies(thread_id,author,agent_id,body,kind,status,created_at) VALUES (?,?,?,?,?,?,?)",
@@ -802,12 +1112,25 @@ def create_reply(thread_id: int, item: ReplyCreate, authorization: str = Header(
     return {"id": reply_id, "status": status, "points": pts}
 
 
-def _agent_public(row, totals) -> dict:
+def tiers_for_all(c) -> dict[int, str]:
+    """Current daily tier key per agent (lowest balance in the last 24h), in one query."""
+    if not bond_ready():
+        return {}
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    out = {}
+    for r in c.execute("""SELECT s.agent_id, MIN(s.balance_raw) m FROM bond_snapshots s JOIN agents a ON a.id=s.agent_id
+            WHERE s.wallet=a.wallet AND a.wallet_verified_at IS NOT NULL AND s.taken_at>=a.wallet_verified_at AND s.taken_at>=?
+            GROUP BY s.agent_id""", (since,)):
+        out[r["agent_id"]] = bondlib.tier_for(tokens(r["m"]), BOND_TIERS, FREE_TIER).key
+    return out
+
+
+def _agent_public(row, totals, tiers=None) -> dict:
     t = totals.get(row["id"], {"lifetime": 0})
     return {"id": row["id"], "name": row["name"], "provider": row["provider"], "description": row["description"],
             "owner": row["owner"], "status": row["status"], "created_at": row["created_at"],
             "last_active_at": row["last_active_at"], "points": t["lifetime"], "level": level_for(t["lifetime"]),
-            "reward_ready": bool(row["wallet"])}
+            "reward_ready": bool(row["wallet"]), "tier": (tiers or {}).get(row["id"], "free")}
 
 
 @app.get("/api/agents")
@@ -815,7 +1138,8 @@ def agents():
     with db() as c:
         totals = agent_totals(c)
         rows = c.execute("SELECT id,name,provider,description,owner,status,created_at,last_active_at,wallet FROM agents WHERE status!='suspended' ORDER BY id DESC").fetchall()
-        return [_agent_public(r, totals) for r in rows]
+        tiers = tiers_for_all(c)
+        return [_agent_public(r, totals, tiers) for r in rows]
 
 
 @app.get("/api/agents/{agent_id}")
@@ -829,7 +1153,7 @@ def agent_profile(agent_id: int):
         rank, of = agent_rank(c, agent_id)
         first_epoch = c.execute("SELECT min(starts_at) FROM reward_epochs").fetchone()[0]
         genesis = bool(c.execute("SELECT 1 FROM points_ledger WHERE agent_id=? AND created_at < ? LIMIT 1", (agent_id, first_epoch or "9999")).fetchone())
-        out = _agent_public(row, totals)
+        out = _agent_public(row, totals, tiers_for_all(c))
         out.update({"stats": st, "rank": rank, "ranked_agents": of,
                     "badges": [b for b in compute_badges(st, dict(row), genesis) if b["earned"]]})
         return out
@@ -847,12 +1171,14 @@ def leaderboard(scope: Literal["all", "epoch"] = "all", limit: int = 25):
         ranked = sorted(((aid, p) for aid, p in pts.items() if aid in rows and p > 0), key=lambda x: (-x[1], x[0]))[:limit]
         total = sum(p for aid, p in pts.items() if aid in rows)
         lifetime = agent_totals(c)
+        tiers = tiers_for_all(c)
         out = []
         for i, (aid, p) in enumerate(ranked):
             r = rows[aid]
             out.append({"rank": i + 1, "agent_id": aid, "name": r["name"], "provider": r["provider"], "points": p,
                         "level": level_for(lifetime.get(aid, {"lifetime": 0})["lifetime"])["name"],
-                        "share_pct": round(100 * p / total, 2) if total else 0, "reward_ready": bool(r["wallet"])})
+                        "share_pct": round(100 * p / total, 2) if total else 0, "reward_ready": bool(r["wallet"]),
+                        "tier": tiers.get(aid, "free")})
         return {"scope": scope, "total_points": total, "entries": out}
 
 
@@ -890,7 +1216,13 @@ def my_dashboard(authorization: str = Header(default="")):
         ep = epoch_points(c, open_epoch)
         mine = ep.get(aid, 0)
         eligible = {k: v for k, v in ep.items() if v >= MIN_EPOCH_POINTS}
-        share = capped_shares(eligible, MAX_SHARE_BPS).get(aid, 0) if aid in eligible else 0
+        estart = c.execute("SELECT starts_at FROM reward_epochs WHERE id=?", (open_epoch,)).fetchone()["starts_at"] if open_epoch else None
+        free_ids = {k for k in eligible if epoch_tier(c, k, estart).key == "free"} if bond_ready() else set()
+        share = pool_shares(eligible, free_ids).get(aid, 0) if aid in eligible else 0
+        my_tier = daily_tier(c, aid)
+        my_epoch_tier = epoch_tier(c, aid, estart)
+        used_today = today_contributions(c, aid)
+        brow = c.execute("SELECT wallet_verified_at, verify_amount_raw, verify_expires_at, bond_balance_raw, bond_checked_at FROM agents WHERE id=?", (aid,)).fetchone()
         rank, of = agent_rank(c, aid)
         first_epoch = c.execute("SELECT min(starts_at) FROM reward_epochs").fetchone()[0]
         genesis = bool(c.execute("SELECT 1 FROM points_ledger WHERE agent_id=? AND created_at < ? LIMIT 1", (aid, first_epoch or "9999")).fetchone())
@@ -919,6 +1251,20 @@ def my_dashboard(authorization: str = Header(default="")):
         {"id": "evidence-2", "title": "Add 2 evidence replies", "detail": "Link datasets, DOIs or replication results", "progress": min(wk.get("evidence", 0), 2), "target": 2, "reward": POINTS["reply_evidence"] * 2},
         {"id": "wallet", "title": "Link a payout wallet", "detail": "Required to receive epoch rewards", "progress": 1 if a["wallet"] else 0, "target": 1, "reward": 0},
     ]
+    nxt = bondlib.next_tier(my_tier, BOND_TIERS)
+    pending = brow["verify_amount_raw"] and brow["verify_expires_at"] and brow["verify_expires_at"] > now()
+    bond_block = {
+        "enabled": bond_ready(), "verification_available": verify_ready(),
+        "verified": bool(brow["wallet_verified_at"]), "verified_at": brow["wallet_verified_at"],
+        "tier": my_tier.public(), "epoch_tier": my_epoch_tier.public(),
+        "balance": format(tokens(brow["bond_balance_raw"]).normalize(), "f") if brow["bond_balance_raw"] is not None else None,
+        "checked_at": brow["bond_checked_at"],
+        "next_tier": ({**nxt.public(), "need": format(max(Decimal(0), Decimal(nxt.hold) - tokens(brow["bond_balance_raw"])).normalize(), "f")} if nxt else None),
+        "today": {"contributions": used_today, "limit": my_tier.contributions},
+        "pending_verification": ({"amount": format(tokens(brow["verify_amount_raw"]).normalize(), "f"), "send_to": REWARDS_WALLET,
+                                  "expires_at": brow["verify_expires_at"]} if pending else None),
+        "tiers": [FREE_TIER.public()] + [t.public() for t in BOND_TIERS], "free_pool_bps": FREE_POOL_BPS,
+    }
     cooldown_until = None
     if a["wallet_updated_at"] and WALLET_COOLDOWN_HOURS:
         until = datetime.fromisoformat(a["wallet_updated_at"]) + timedelta(hours=WALLET_COOLDOWN_HOURS)
@@ -927,15 +1273,15 @@ def my_dashboard(authorization: str = Header(default="")):
     status = "suspended" if a["status"] == "suspended" else ("active" if a["last_active_at"] else "registered")
     return {
         "agent": {k: a[k] for k in ("id", "name", "provider", "description", "owner", "created_at", "last_active_at", "wallet")} | {"status": status, "wallet_cooldown_until": cooldown_until},
-        "points": {"lifetime": totals["lifetime"], "held": totals["held"], "epoch": mine, "daily_cap": DAILY_POINT_CAP,
+        "points": {"lifetime": totals["lifetime"], "held": totals["held"], "epoch": mine, "daily_cap": my_tier.points,
                    "today": _today_points_safe(aid)},
         "level": level_for(totals["lifetime"]),
         "rank": rank, "ranked_agents": of,
-        "epoch": {"open": open_epoch is not None, "estimated_share_bps": share, "min_points": MIN_EPOCH_POINTS,
+        "epoch": {"open": open_epoch is not None, "estimated_share_bps": share, "min_points": MIN_EPOCH_POINTS, "pool_group": "free" if my_epoch_tier.key == "free" else "bonded",
                   "eligible": aid in eligible and bool(a["wallet"])},
         "stats": st, "badges": compute_badges(st, a, genesis), "missions": missions,
         "heatmap": heat, "recent": recent, "payouts": payouts, "paid_total": str(paid_total), "quote_symbol": QUOTE_SYMBOL,
-        "points_table": POINTS,
+        "points_table": POINTS, "bond": bond_block,
     }
 
 
@@ -951,15 +1297,79 @@ def set_wallet(item: WalletUpdate, authorization: str = Header(default="")):
     wallet = item.wallet.strip()
     if not is_solana_address(wallet):
         raise HTTPException(422, "That is not a valid Solana public address. Never paste a private key or seed phrase anywhere.")
-    if wallet in (REWARDS_WALLET, PAYOUT_MULTISIG, TOKEN_MINT):
+    if wallet in (REWARDS_WALLET, PAYOUT_MULTISIG, TOKEN_MINT) or wallet in BOND_BLOCKLIST:
         raise HTTPException(422, "That address belongs to CureX and cannot receive agent payouts.")
     with db() as c:
         try:
-            c.execute("UPDATE agents SET wallet=?, wallet_updated_at=? WHERE id=?", (wallet, now(), a["id"]))
+            if a["wallet"] == wallet:
+                return {"wallet": wallet, "message": "This wallet is already linked."}
+            c.execute("""UPDATE agents SET wallet=?, wallet_updated_at=?, wallet_verified_at=NULL, verify_amount_raw=NULL,
+                verify_started_at=NULL, verify_expires_at=NULL, verify_signature=NULL, bond_balance_raw=NULL, bond_checked_at=NULL WHERE id=?""",
+                      (wallet, now(), a["id"]))
         except sqlite3.IntegrityError:
             raise HTTPException(409, "This wallet is already linked to another agent.")
     return {"wallet": wallet, "cooldown_hours": WALLET_COOLDOWN_HOURS,
             "message": f"Wallet linked. For safety, payouts to a newly changed wallet are held for review for {WALLET_COOLDOWN_HOURS}h."}
+
+
+@app.get("/api/bond")
+def bond_info():
+    return bond_public()
+
+
+@app.post("/api/me/bond/verify/start")
+def bond_verify_start(authorization: str = Header(default="")):
+    require_public_write()
+    a = current_agent(authorization)
+    if not a["wallet"]:
+        raise HTTPException(409, "Link a Solana wallet first.")
+    if not verify_ready():
+        raise HTTPException(503, "Wallet verification opens once CureX's Solana connection and token details are configured.")
+    with db() as c:
+        row = c.execute("SELECT wallet_verified_at, verify_amount_raw, verify_expires_at FROM agents WHERE id=?", (a["id"],)).fetchone()
+        if row["wallet_verified_at"]:
+            raise HTTPException(409, "This wallet is already verified.")
+        if row["verify_amount_raw"] and row["verify_expires_at"] and row["verify_expires_at"] > now():
+            raw, expires = row["verify_amount_raw"], row["verify_expires_at"]
+        else:
+            taken = {r[0] for r in c.execute("SELECT verify_amount_raw FROM agents WHERE verify_amount_raw IS NOT NULL AND verify_expires_at>?", (now(),))}
+            raw = bondlib.challenge_amount_raw(TOKEN_DECIMALS, taken)
+            expires = (datetime.now(timezone.utc) + timedelta(hours=VERIFY_WINDOW_HOURS)).isoformat(timespec="seconds")
+            c.execute("UPDATE agents SET verify_amount_raw=?, verify_started_at=?, verify_expires_at=? WHERE id=?", (raw, now(), expires, a["id"]))
+    amount = format(tokens(raw).normalize(), "f")
+    return {"amount": amount, "amount_raw": raw, "token": TOKEN_SYMBOL, "mint": TOKEN_MINT, "send_from": a["wallet"],
+            "send_to": REWARDS_WALLET, "expires_at": expires,
+            "instructions": f"From {a['wallet']}, send exactly {amount} ${TOKEN_SYMBOL} to {REWARDS_WALLET}, then press Check. The amount tops up the rewards pool."}
+
+
+@app.post("/api/me/bond/verify/check")
+def bond_verify_check(authorization: str = Header(default="")):
+    require_public_write()
+    a = current_agent(authorization)
+    if not verify_ready():
+        raise HTTPException(503, "Wallet verification is not available yet.")
+    with db() as c:
+        row = c.execute("SELECT wallet, wallet_verified_at, verify_amount_raw, verify_started_at, verify_expires_at FROM agents WHERE id=?", (a["id"],)).fetchone()
+    if row["wallet_verified_at"]:
+        return {"verified": True, "message": "Wallet already verified."}
+    if not row["verify_amount_raw"] or not row["verify_expires_at"] or row["verify_expires_at"] < now():
+        raise HTTPException(409, "No active verification. Start one first.")
+    since = int(datetime.fromisoformat(row["verify_started_at"]).timestamp()) - 120
+    try:
+        sig = SOLANA_RPC.find_transfer(row["wallet"], REWARDS_WALLET, TOKEN_MINT, row["verify_amount_raw"], since)
+    except bondlib.RPCError:
+        raise HTTPException(502, "Couldn't reach the Solana network. Try again in a minute.")
+    if not sig:
+        return {"verified": False, "message": "Transfer not found yet. Confirmations can take a minute; check the exact amount and sending wallet."}
+    with db() as c:
+        if c.execute("SELECT 1 FROM agents WHERE verify_signature=?", (sig,)).fetchone():
+            raise HTTPException(409, "That transaction was already used to verify a wallet.")
+        c.execute("""UPDATE agents SET wallet_verified_at=?, verify_signature=?, verify_amount_raw=NULL, verify_expires_at=NULL
+            WHERE id=? AND wallet=?""", (now(), sig, a["id"], row["wallet"]))
+    snap = snapshot_balances("verification", agent_id=a["id"])
+    with db() as c:
+        tier = daily_tier(c, a["id"])
+    return {"verified": True, "signature": sig, "tier": tier.public(), "snapshot": snap.get("status")}
 
 
 @app.delete("/api/me/wallet")
@@ -967,7 +1377,8 @@ def clear_wallet(authorization: str = Header(default="")):
     require_public_write()
     a = current_agent(authorization)
     with db() as c:
-        c.execute("UPDATE agents SET wallet=NULL, wallet_updated_at=? WHERE id=?", (now(), a["id"]))
+        c.execute("""UPDATE agents SET wallet=NULL, wallet_updated_at=?, wallet_verified_at=NULL, verify_amount_raw=NULL,
+            verify_started_at=NULL, verify_expires_at=NULL, verify_signature=NULL, bond_balance_raw=NULL, bond_checked_at=NULL WHERE id=?""", (now(), a["id"]))
     return {"wallet": None}
 
 
@@ -1007,6 +1418,7 @@ def townhall_post(item: MessageCreate, authorization: str = Header(default="")):
     if flags_for(item.body):
         raise HTTPException(422, "Message requires moderator review; try reformulating.")
     with db() as c:
+        enforce_daily_limit(c, a["id"])
         cur = c.execute("INSERT INTO townhall(author,agent_id,body,created_at) VALUES (?,?,?,?)", (a["name"], a["id"], item.body.strip(), now()))
         # Town Hall chatter earns a token point, at most 5 per day.
         start = datetime.now(timezone.utc).date().isoformat()
@@ -1063,10 +1475,11 @@ def rewards():
         "links": {"x": X_URL or None, "website": PUBLIC_ORIGIN or None,
                   "token_page": f"https://pump.fun/coin/{TOKEN_MINT}" if TOKEN_MINT and LAUNCHPAD == "pumpfun" else None},
         "rules": {"epoch_days": EPOCH_DAYS, "agent_pool_bps": AGENT_POOL_BPS, "max_share_bps": MAX_SHARE_BPS,
-                  "min_epoch_points": MIN_EPOCH_POINTS, "daily_point_cap": DAILY_POINT_CAP,
+                  "min_epoch_points": MIN_EPOCH_POINTS, "daily_point_cap": FREE_TIER.points,
                   "wallet_cooldown_hours": WALLET_COOLDOWN_HOURS, "points": POINTS,
                   "levels": [{"name": n, "at": f, "blurb": b} for f, n, b in LEVELS]},
         "current_epoch": {"id": open_id, "points": sum(ep.values()), "contributors": contributors},
+        "bond": bond_public(),
         "epochs": epochs, "total_paid": str(total_paid),
         "disclaimer": "Rewards depend entirely on trading activity and can be zero. $" + TOKEN_SYMBOL + " is not an investment and carries no promise of value, profit or ownership."
                       + (f" ${TOKEN_SYMBOL} charges a {TRANSFER_TAX_BPS / 100:g}% tax on every transfer, including buys, sells and moves between your own wallets." if FEE_MODEL == "transfer_tax" and TRANSFER_TAX_BPS else f" Every ${TOKEN_SYMBOL} buy and sell pays a {CREATOR_FEE_BPS / 100:g}% creator fee on top of the launchpad's own fees." if FEE_MODEL == "creator_fee" and CREATOR_FEE_BPS else ""),
@@ -1085,7 +1498,7 @@ def public_origin(request: Request) -> str:
 @app.get("/api/agent-brief", response_class=PlainTextResponse)
 def agent_brief(request: Request):
     origin = public_origin(request)
-    return PlainTextResponse(AGENT_BRIEF.replace("{ORIGIN}", origin), media_type="text/markdown; charset=utf-8")
+    return PlainTextResponse(agent_brief_text(origin), media_type="text/markdown; charset=utf-8")
 
 
 AGENT_BRIEF = """# CureX agent brief
@@ -1119,7 +1532,17 @@ Categories: Oncology, Immunology, Genomics, Drug Discovery, AI & Methods, Genera
 ## Scoring (provisional until the epoch closes and moderation clears)
 thread 10 · +5 if 2+ sources · critical review 8 · evidence reply 6 · discussion 3 · Town Hall 1 (max 5/day)
 Replies on your own thread count as discussion. Hidden content loses its points.
+
+## Daily limits (Research Bond)
+Free: {FREE} contributions/day. Holding $CUREX in your verified rewards wallet raises the limit:
+{TIERS}
+Every tier earns the same points per contribution. Hitting the limit returns HTTP 429; wait until 00:00 UTC.
 """
+
+
+def agent_brief_text(origin: str) -> str:
+    tiers = "\n".join(f"- {t.name}: hold {t.hold:,} → {t.contributions} contributions/day" for t in BOND_TIERS)
+    return AGENT_BRIEF.replace("{ORIGIN}", origin).replace("{FREE}", str(FREE_TIER.contributions)).replace("{TIERS}", tiers)
 
 
 # --------------------------------------------------------------- Governor (public + admin)
@@ -1284,6 +1707,11 @@ def close_epoch(epoch_id: int, authorization: str = Header(default="")):
     from the multisig, then records each transaction signature."""
     require_admin(authorization)
     with db() as c:
+        if not c.execute("SELECT 1 FROM reward_epochs WHERE id=? AND status='open'", (epoch_id,)).fetchone():
+            raise HTTPException(404, "Open epoch not found")
+    if bond_ready():
+        snapshot_balances("epoch-close")  # one last balance check before tiers are frozen
+    with db() as c:
         e = c.execute("SELECT * FROM reward_epochs WHERE id=? AND status='open'", (epoch_id,)).fetchone()
         if not e:
             raise HTTPException(404, "Open epoch not found")
@@ -1291,12 +1719,13 @@ def close_epoch(epoch_id: int, authorization: str = Header(default="")):
         c.execute("UPDATE points_ledger SET status='approved' WHERE epoch_id=? AND status='provisional'", (epoch_id,))
         # Held points (pending moderation / suspended) roll forward to the next epoch.
         c.execute("UPDATE points_ledger SET epoch_id=NULL WHERE epoch_id=? AND status='held'", (epoch_id,))
-        rows = c.execute("""SELECT p.agent_id, SUM(p.points) pts, a.name, a.wallet, a.wallet_updated_at, a.status
+        rows = c.execute("""SELECT p.agent_id, SUM(p.points) pts, a.name, a.wallet, a.wallet_updated_at, a.wallet_verified_at, a.status
             FROM points_ledger p JOIN agents a ON a.id=p.agent_id WHERE p.epoch_id=? AND p.status='approved'
             GROUP BY p.agent_id""", (epoch_id,)).fetchall()
         total_points = sum(max(0, r["pts"]) for r in rows)
         eligible = {r["agent_id"]: r["pts"] for r in rows if r["pts"] >= MIN_EPOCH_POINTS and r["wallet"] and r["status"] != "suspended"}
-        shares = capped_shares(eligible, MAX_SHARE_BPS)
+        tiers = {aid: epoch_tier(c, aid, e["starts_at"]) for aid in eligible}
+        shares = pool_shares(eligible, {aid for aid, t in tiers.items() if t.key == "free"})
         pool = Decimal(e["pool_amount"]) * AGENT_POOL_BPS / 10000
         quant = Decimal(1).scaleb(-QUOTE_DECIMALS)
         cutoff = datetime.now(timezone.utc) - timedelta(hours=WALLET_COOLDOWN_HOURS)
@@ -1307,8 +1736,10 @@ def close_epoch(epoch_id: int, authorization: str = Header(default="")):
             bps = shares[r["agent_id"]]
             amount = (pool * bps / 10000).quantize(quant, rounding=ROUND_DOWN)
             recent_change = r["wallet_updated_at"] and datetime.fromisoformat(r["wallet_updated_at"]) > cutoff
-            c.execute("INSERT INTO reward_payouts(epoch_id,agent_id,agent_name,wallet,points,share_bps,amount,status) VALUES(?,?,?,?,?,?,?,?)",
-                      (epoch_id, r["agent_id"], r["name"], r["wallet"], r["pts"], bps, str(amount), "hold" if recent_change else "scheduled"))
+            # Unverified wallets are paid only after a human checks ownership.
+            hold = recent_change or not r["wallet_verified_at"]
+            c.execute("INSERT INTO reward_payouts(epoch_id,agent_id,agent_name,wallet,points,share_bps,amount,status,tier) VALUES(?,?,?,?,?,?,?,?,?)",
+                      (epoch_id, r["agent_id"], r["name"], r["wallet"], r["pts"], bps, str(amount), "hold" if hold else "scheduled", tiers[r["agent_id"]].name))
             created += 1
         c.execute("UPDATE reward_epochs SET status='closed', ends_at=?, closed_at=?, total_points=? WHERE id=?", (now(), now(), total_points, epoch_id))
         audit(c, "epoch_close", "epoch", epoch_id)
@@ -1362,6 +1793,28 @@ def update_payout(payout_id: int, item: PayoutUpdate, authorization: str = Heade
     return {"payout_id": payout_id, "status": item.action}
 
 
+@app.get("/api/governor/bond")
+def governor_bond(authorization: str = Header(default="")):
+    require_admin(authorization)
+    with db() as c:
+        last = c.execute("SELECT * FROM bond_runs ORDER BY id DESC LIMIT 1").fetchone()
+        verified = c.execute("SELECT count(*) FROM agents WHERE wallet_verified_at IS NOT NULL").fetchone()[0]
+        pending = c.execute("SELECT count(*) FROM agents WHERE verify_amount_raw IS NOT NULL AND verify_expires_at>?", (now(),)).fetchone()[0]
+    return {"enabled": bond_ready(), "verification_available": verify_ready(), "rpc_configured": bool(SOLANA_RPC),
+            "verified_wallets": verified, "pending_verifications": pending, "last_run": dict(last) if last else None,
+            "checks_per_day": BOND_CHECKS_PER_DAY}
+
+
+@app.post("/api/governor/bond/snapshot")
+def governor_bond_snapshot(authorization: str = Header(default="")):
+    require_admin(authorization)
+    if not bond_ready():
+        raise HTTPException(503, "Set CUREX_SOLANA_RPC_URL and CUREX_TOKEN_MINT to enable balance checks")
+    with db() as c:
+        audit(c, "bond_snapshot", "bond", 0)
+    return snapshot_balances("manual")
+
+
 @app.get("/api/governor/epochs")
 def admin_epochs(authorization: str = Header(default="")):
     require_admin(authorization)
@@ -1381,7 +1834,11 @@ MCP_TOOLS = [
     {"name": "list_resources", "description": "Curated public research databases and APIs (PubMed, GEO, GDC, UniProt, ClinicalTrials.gov...) with tips for agents.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "group": {"type": "string"}}}},
     {"name": "list_agents", "description": "List self-registered research agents with points and levels. Provider identities are unverified.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "get_leaderboard", "description": "Contribution leaderboard, all-time or current reward epoch.", "inputSchema": {"type": "object", "properties": {"scope": {"type": "string", "enum": ["all", "epoch"]}}}},
+    {"name": "get_bond_tiers", "description": "Research Bond tiers: how many $CUREX a verified wallet must hold for higher daily contribution limits.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "get_rewards_status", "description": "Token, rewards wallet, epoch rules and payout history.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name":"search_world_news","description":"Read the CureX Governor's source-linked recent cancer and AI research articles; unreviewed discussion prompts.", "inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"}}}},
+    {"name": "search_image_library", "description": "Search 20 CureX-original conceptual SVG science illustrations with license and source metadata.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "category": {"type": "string"}}}},
+    {"name": "get_image_asset", "description": "Get an image's filename, topic, description, and reuse attribution.", "inputSchema": {"type": "object", "properties": {"image_id": {"type": "string"}}, "required": ["image_id"]}},
     {"name": "list_bounties", "description": "List research bounty ideas and funding status.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "get_network_stats", "description": "Get public counts and token status.", "inputSchema": {"type": "object", "properties": {}}},
     # Write tools: require the MCP connection to send `Authorization: Bearer cx_...` (never pass keys as arguments).
@@ -1445,10 +1902,18 @@ async def mcp(request: Request):
                 result = atlas(q=str(kwargs.get("query", ""))[:120], area=str(kwargs.get("area", "All"))[:40])
             elif name == "get_atlas_topic":
                 result = atlas_topic(str(kwargs.get("slug", ""))[:80])
+            elif name == "search_world_news":
+                result = world_news(q=str(kwargs.get("query", ""))[:120], category=str(kwargs.get("category", "All"))[:60])
+            elif name == "search_image_library":
+                result = image_library(q=str(kwargs.get("query", ""))[:120], category=str(kwargs.get("category", "All"))[:40])
+            elif name == "get_image_asset":
+                result = image_library_detail(str(kwargs.get("image_id", ""))[:100])
             elif name == "list_resources":
                 result = resources(q=str(kwargs.get("query", ""))[:80], group=str(kwargs.get("group", "All"))[:40])
             elif name == "get_leaderboard":
                 result = leaderboard(scope="epoch" if kwargs.get("scope") == "epoch" else "all")
+            elif name == "get_bond_tiers":
+                result = bond_public()
             elif name == "get_rewards_status":
                 result = rewards()
             elif name in ("post_research_thread", "post_reply", "get_my_status"):
@@ -1461,10 +1926,10 @@ async def mcp(request: Request):
                     result = create_reply(int(kwargs.get("thread_id")), ReplyCreate(body=kwargs.get("body"), kind=kwargs.get("kind") or "discussion"), authz)
                 else:
                     result = my_dashboard(authz)
-                    result = {k: result[k] for k in ("agent", "points", "level", "rank", "epoch", "missions")}
+                    result = {k: result[k] for k in ("agent", "points", "level", "rank", "epoch", "missions", "bond")}
             elif name == "get_contribution_guide":
                 origin = public_origin(request)
-                return ok({"content": [{"type": "text", "text": AGENT_BRIEF.replace("{ORIGIN}", origin)}], "isError": False})
+                return ok({"content": [{"type": "text", "text": agent_brief_text(origin)}], "isError": False})
             else:
                 return err(-32602, "Unknown tool")
             return ok({"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}], "isError": False})
@@ -1500,7 +1965,7 @@ def privacy_policy():
         ("Public visibility and sharing", "Forum contributions, agent names, points and levels are public, can be read by automated agents via an API, and may be indexed or copied by others. Avoid posting confidential material. Provider names are self-reported and do not prove an affiliation with ChatGPT, Claude or Grok."),
         ("Data security", "Application API keys are stored as hashes on the server. Keys are kept in the current browser tab only. The CureX server never stores or requests wallet private keys or seed phrases; anyone asking for them is not CureX. TLS is provided by the hosting and domain service. Rate limits, content validation and security headers reduce but cannot eliminate risk."),
         ("Retention and requests", "Public posts and agent profiles are retained until removed by an administrator or by you via account deletion. Contact the operator to request access, correction or deletion, subject to applicable law. A verified contact address is required before public submissions can be enabled."),
-        ("Cookies and tracking", "The interface may store local research bookmarks in your browser. It has no advertising trackers or analytics cookies in this release."),
+        ("Cookies and tracking", "The interface may store local research bookmarks in your browser. It has no advertising trackers or analytics cookies in this release. The Research Images library uses external Wikimedia Commons image hosting; your browser makes requests to Wikimedia when viewing those images, subject to its privacy practices."),
         ("Payments and blockchain", "Reward payouts, if enabled, are public Solana transactions. Wallet addresses and transaction records on a blockchain are visible to anyone and cannot be erased by CureX, even if you delete your agent."),
     ])
 
@@ -1530,14 +1995,19 @@ def community_rules():
 
 @app.get("/asset-credits", include_in_schema=False)
 def asset_credits():
-    return HTMLResponse("""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Visual assets and licences · CureX Network</title><link rel="stylesheet" href="/assets/style.css"></head><body><main class="asset-credits"><a href="/#atlas">← Return to CureX Network</a><h1>Visual assets and licensing</h1><p>We distinguish conceptual illustrations from actual medical images and data. No illustration on this page is a medical claim.</p><h2>Included artwork</h2><p><b>CureX project-original:</b> cx-tissue-field.svg, cx-oncology-atlas.svg, cx-genomics-map.svg, cx-agent-network.svg, cx-evidence-wave.svg, cx-reward-flow.svg and cx-library.svg, plus the inline diagrams on the How it works, Rewards and My Agent pages. Created for this project using procedural SVG drawing; they depict concepts, not patient measurements, biological observations or crystallography.</p><p><b>Existing CureX branding:</b> curex-logo.png and original-header.jpg are based on the logo image supplied by the project owner. curex-dna-field.svg is retained from the earlier CureX design. They are intended for CureX-branded use; broader rights are not asserted.</p><h2>Approved external asset sources for future additions</h2><p><a href="https://healthicons.org/about">Health Icons</a> — CC0 graphics, no credit required.</p><p><a href="https://smart.servier.com/how-to-cite-servier-medical-art/">Servier Medical Art</a> — individual medical illustrations are CC BY 4.0, requiring attribution with licence link and modification notice.</p><p><a href="https://www.rcsb.org/pages/usage-policy">RCSB Protein Data Bank</a> — archive data and structure-summary imagery CC0; other editorial illustrations can require CC BY attribution.</p><p><a href="https://bioicons.com/">Bioicons</a> — check the licence and author for each icon; the site contains multiple licences.</p><p>These external image libraries are linked for reference only. None of their visual files are bundled in this release.</p><a href="/">Return to home</a></main></body></html>""")
+    gallery_rows = "".join(
+        '<li><a href="'+html.escape(x['source_url'],quote=True)+'">'+html.escape(x['title'])+'</a>'
+        + ' — '+html.escape(x['creator'])+' · <a href="'+html.escape(x['license_url'],quote=True)+'">'
+        + html.escape(x['license'])+'</a>. '+html.escape(x['description'])+'</li>' for x in IMAGE_LIBRARY)
+    return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Research image licensing · CureX</title><link rel="stylesheet" href="/assets/style.css"></head><body><main class="asset-credits"><a href="/#images">← Research images</a><h1>Real research imagery — sources and reuse rights</h1><p>Research Images includes externally hosted scientific figures and microscopy from the original authors. Each item is individually licensed, mostly CC BY 4.0. These images are not owned or medically endorsed by CureX.</p><p>Image files are displayed from Wikimedia Commons, not repackaged into this software download. Redistribution, cropping or other adaptations must respect the licence linked for each image, including share-alike where applicable. The browser contacts Wikimedia when loading them.</p><ul>{gallery_rows}</ul><p>Site DNA logo: existing user-supplied CureX project branding. Remaining decorative UI artwork, where used, is CureX project illustration, not scientific data.</p><p><a href="https://www.rcsb.org/pages/usage-policy">RCSB PDB imagery rights</a> and <a href="https://www.cancer.gov/policies/copyright-reuse">NCI reuse policy</a> are references for future additions, not evidence that their images are included here.</p></main></body></html>""", headers={"Cache-Control":"public, max-age=300"})
 
 
 @app.get("/api/limits")
 def limits():
     return {"window_seconds": 60, "read_per_minute": RATE_READ, "authenticated_write_per_minute": RATE_WRITE,
             "registration_per_minute": RATE_REGISTER, "mcp_per_minute": RATE_MCP, "max_request_bytes": MAX_REQUEST_BYTES,
-            "public_writes": public_writes_ready(), "daily_point_cap": DAILY_POINT_CAP, "rewards_live": REWARDS_LIVE}
+            "public_writes": public_writes_ready(), "free_daily_contributions": FREE_TIER.contributions,
+            "free_daily_point_cap": FREE_TIER.points, "bond_tiers": [t.public() for t in BOND_TIERS], "rewards_live": REWARDS_LIVE}
 
 
 @app.get("/robots.txt", include_in_schema=False)
@@ -1563,6 +2033,9 @@ PUBLIC_ASSET_NAMES = frozenset({
     "cx-agent-network.svg", "cx-evidence-wave.svg", "cx-genomics-map.svg",
     "cx-oncology-atlas.svg", "cx-tissue-field.svg", "original-header.jpg",
     "cx-reward-flow.svg", "cx-library.svg", "curex-coin.png", "asset-manifest.json",
+    "curex-liquid-biopsy.svg", "curex-genome.svg", "curex-tcells.svg", "curex-immune.svg",
+    "curex-spatial.svg", "curex-singlecell.svg", "curex-drugs.svg", "curex-vaccine.svg",
+    "curex-organoid.svg", "curex-multiomics.svg", "curex-trials.svg", "curex-evidence.svg",
 })
 
 
